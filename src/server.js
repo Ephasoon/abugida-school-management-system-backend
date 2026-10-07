@@ -30,6 +30,8 @@ const corsOrigins = (process.env.CORS_ORIGINS || DEFAULT_CORS_ORIGINS)
 app.use(cors({
   origin: corsOrigins,
   credentials: true,
+  // Lets the browser read the download filename (RFC 5987, e.g. Amharic names)
+  exposedHeaders: ['Content-Disposition'],
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
