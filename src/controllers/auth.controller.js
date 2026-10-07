@@ -161,8 +161,8 @@ const getMe = async (req, res) => {
            WHEN u.role = 'teacher' THEN t.first_name || ' ' || t.last_name
            WHEN u.role = 'student' THEN s.first_name || ' ' || s.last_name
            WHEN u.role = 'parent'  THEN p.full_name
-           WHEN u.role = 'principal' THEN 'Principal'
-           ELSE 'Administrator'
+           WHEN u.role = 'principal' THEN COALESCE(u.display_name, 'Principal')
+           ELSE COALESCE(u.display_name, 'Administrator')
          END AS full_name,
          -- Profile ids, so clients can call e.g. /timetable/teacher/:teacher_id
          t.id AS teacher_id, s.id AS student_id, p.id AS parent_id
