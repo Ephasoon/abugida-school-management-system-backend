@@ -9,15 +9,15 @@ const {
   getUnpaidStudents,
 } = require('../controllers/finance.controller');
 const { authenticate }              = require('../middleware/auth.middleware');
-const { adminOnly }                 = require('../middleware/role.middleware');
+const { adminOnly, schoolLeaders }  = require('../middleware/role.middleware');
 
 router.use(authenticate);
-router.use(adminOnly); // Finance is admin-only (teachers have no access)
-
-router.post('/payments',              recordPayment);
-router.get ('/payments',              getPayments);
-router.get ('/summary',               getFinanceSummary);
-router.get ('/student/:studentId',    getStudentBalance);
-router.get ('/unpaid',                getUnpaidStudents);
+// Finance: admin full access, principal view only; teachers and students none.
+// Parents see their own children's fees through /api/parent.
+router.post('/payments',              adminOnly,     recordPayment);
+router.get ('/payments',              schoolLeaders, getPayments);
+router.get ('/summary',               schoolLeaders, getFinanceSummary);
+router.get ('/student/:studentId',    schoolLeaders, getStudentBalance);
+router.get ('/unpaid',                schoolLeaders, getUnpaidStudents);
 
 module.exports = router;

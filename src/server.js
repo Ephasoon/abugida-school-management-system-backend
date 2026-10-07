@@ -18,6 +18,8 @@ const academicYearRoutes = require('./routes/academicYear.routes');
 const examScheduleRoutes = require('./routes/examSchedule.routes');
 const analyticsRoutes    = require('./routes/analytics.routes');
 const documentRoutes     = require('./routes/document.routes');
+const accountRoutes      = require('./routes/accounts.routes');
+const dashboardRoutes    = require('./routes/dashboard.routes');
 const { sendServerError } = require('./utils/errors');
 
 const app = express();
@@ -58,6 +60,8 @@ app.use('/api/academic-years', academicYearRoutes);
 app.use('/api/exam-schedule',  examScheduleRoutes);
 app.use('/api/analytics',      analyticsRoutes);
 app.use('/api/documents',      documentRoutes);
+app.use('/api/accounts',       accountRoutes);
+app.use('/api/dashboard',      dashboardRoutes);
 
 app.use((req, res) => res.status(404).json({
   success:false, message:`Route not found: ${req.method} ${req.originalUrl}`

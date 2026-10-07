@@ -6,10 +6,10 @@ const {
   getAttendanceAnalytics, getGradeAnalytics, getFinanceAnalytics,
 } = require('../controllers/analytics.controller');
 const { authenticate } = require('../middleware/auth.middleware');
-const { adminOnly }    = require('../middleware/role.middleware');
+const { schoolLeaders } = require('../middleware/role.middleware');
 
 router.use(authenticate);
-router.use(adminOnly);
+router.use(schoolLeaders);   // whole-school dashboard: admin + principal (read-only)
 
 router.get('/overview',   getOverview);
 router.get('/students',   getStudentAnalytics);

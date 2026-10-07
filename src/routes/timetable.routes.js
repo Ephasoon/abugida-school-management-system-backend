@@ -11,17 +11,18 @@ const {
   getSubjects,
 } = require('../controllers/timetable.controller');
 const { authenticate }              = require('../middleware/auth.middleware');
-const { adminOnly, teacherOrAdmin } = require('../middleware/role.middleware');
+const { adminOnly, allStaff, allAuthenticated } = require('../middleware/role.middleware');
+const { requireClassAccess, requireOwnTeacher } = require('../middleware/studentAccess.middleware');
 
 router.use(authenticate);
 
 // Reference data
-router.get('/classes',             teacherOrAdmin, getClasses);
-router.get('/subjects',            teacherOrAdmin, getSubjects);
+router.get('/classes',             allStaff, getClasses);
+router.get('/subjects',            allStaff, getSubjects);
 
 // Timetable views
-router.get('/class/:classId',      teacherOrAdmin, getClassTimetable);
-router.get('/teacher/:teacherId',  teacherOrAdmin, getTeacherTimetable);
+router.get('/class/:classId',      allAuthenticated, requireClassAccess('classId'), getClassTimetable);
+router.get('/teacher/:teacherId',  allStaff, requireOwnTeacher('teacherId'), getTeacherTimetable);
 
 // Manage slots
 router.post('/',     adminOnly, createSlot);

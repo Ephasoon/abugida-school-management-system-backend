@@ -11,18 +11,19 @@ const {
   cancelExam,
 } = require('../controllers/examSchedule.controller');
 const { authenticate }              = require('../middleware/auth.middleware');
-const { adminOnly, teacherOrAdmin } = require('../middleware/role.middleware');
+const { adminOnly, teacherOrAdmin, allAuthenticated } = require('../middleware/role.middleware');
+const { requireClassAccess } = require('../middleware/studentAccess.middleware');
 
 router.use(authenticate);
 
-// Read routes — teachers + admins
-router.get('/upcoming',          teacherOrAdmin, getUpcoming);
-router.get('/calendar',          teacherOrAdmin, getCalendar);
-router.get('/class/:classId',    teacherOrAdmin, getClassExams);
-router.get('/',                  teacherOrAdmin, getAllScheduled);
+// Read routes — every role, limited to the classes the user may see
+router.get('/upcoming',          allAuthenticated, getUpcoming);
+router.get('/calendar',          allAuthenticated, getCalendar);
+router.get('/class/:classId',    allAuthenticated, requireClassAccess('classId'), getClassExams);
+router.get('/',                  allAuthenticated, getAllScheduled);
 
 // Write routes — admin only
-router.post('/',    adminOnly, scheduleExam);
+router.post('/',    teacherOrAdmin, scheduleExam);   // teacher: own class + subject only
 router.put('/:id',  adminOnly, updateSchedule);
 router.delete('/:id', adminOnly, cancelExam);
 

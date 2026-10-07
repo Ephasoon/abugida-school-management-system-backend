@@ -30,9 +30,15 @@ const recordPayment = async (req, res) => {
       term, fee_structure_id, reference, notes,
     } = req.body;
 
-    if (!student_id || !amount_due || !amount_paid || !payment_method || !payment_date) {
+    // 0 is a valid amount (e.g. a fee charged but not yet paid), so check for absence, not falsiness
+    const missing = (v) => v === undefined || v === null || v === '';
+    if (!student_id || missing(amount_due) || missing(amount_paid) || !payment_method || !payment_date) {
       return sendError(res,
         'student_id, amount_due, amount_paid, payment_method, and payment_date are required.', 400);
+    }
+    const due = Number(amount_due), paid = Number(amount_paid);
+    if (!Number.isFinite(due) || due < 0 || !Number.isFinite(paid) || paid < 0) {
+      return sendError(res, 'amount_due and amount_paid must be numbers of 0 or more.', 400);
     }
 
     // Auto-get current academic year
@@ -145,15 +151,29 @@ const getFinanceSummary = async (req, res) => {
     const yearFilter  = currentYear ? 'WHERE p.academic_year_id = $1' : '';
     const yearParams  = currentYear ? [currentYear.id] : [];
 
+    // Balances are computed per student, so one student's overpayment
+    // never hides another student's debt:
+    //   total_outstanding = what students still owe (sum of positive balances; matches /unpaid)
+    //   total_credit      = what students overpaid  (sum of negative balances, as a positive number)
+    //   net_balance       = total_expected - total_collected
+    // `outstanding` is kept for existing clients and equals total_outstanding.
     const { rows: summary } = await db.query(
-      `SELECT
-         COALESCE(SUM(amount_due),0)  AS total_expected,
-         COALESCE(SUM(amount_paid),0) AS total_collected,
-         COALESCE(SUM(amount_due)-SUM(amount_paid),0) AS outstanding,
-         ROUND(COALESCE(SUM(amount_paid),0)*100/
-           NULLIF(COALESCE(SUM(amount_due),0),0),1) AS collection_rate,
-         COUNT(DISTINCT student_id) AS paying_students
-       FROM payments p ${yearFilter}`,
+      `WITH per_student AS (
+         SELECT student_id, SUM(amount_due) AS due, SUM(amount_paid) AS paid
+         FROM payments p ${yearFilter}
+         GROUP BY student_id
+       )
+       SELECT
+         COALESCE(SUM(due),0)  AS total_expected,
+         COALESCE(SUM(paid),0) AS total_collected,
+         COALESCE(SUM(GREATEST(due - paid, 0)),0) AS total_outstanding,
+         COALESCE(SUM(GREATEST(due - paid, 0)),0) AS outstanding,
+         COALESCE(SUM(GREATEST(paid - due, 0)),0) AS total_credit,
+         COALESCE(SUM(due) - SUM(paid),0)         AS net_balance,
+         ROUND(COALESCE(SUM(paid),0)*100/
+           NULLIF(COALESCE(SUM(due),0),0),1) AS collection_rate,
+         COUNT(*) AS paying_students
+       FROM per_student`,
       yearParams
     );
 

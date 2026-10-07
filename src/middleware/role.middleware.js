@@ -36,17 +36,25 @@ const authorize = (...roles) => {
 };
 
 /**
- * Shortcuts for common role combinations
+ * Role policies (docs/PERMISSIONS.md). Combine with the record-level
+ * checks in studentAccess.middleware.js for "own classes / own children / self".
  */
-const adminOnly          = authorize('admin');
-const teacherOrAdmin     = authorize('admin', 'teacher');
-const allStaff           = authorize('admin', 'teacher');
-const allAuthenticated   = authorize('admin', 'teacher', 'student', 'parent');
+const ROLES = ['admin', 'principal', 'teacher', 'parent', 'student'];
+
+const adminOnly          = authorize('admin');                          // create / change / delete
+const schoolLeaders      = authorize('admin', 'principal');             // whole-school read access
+const allStaff           = authorize('admin', 'principal', 'teacher');  // staff reads (teacher scoped)
+const teacherOrAdmin     = authorize('admin', 'teacher');               // writes a teacher may do (scoped)
+const parentOnly         = authorize('parent');
+const allAuthenticated   = authorize(...ROLES);
 
 module.exports = {
+  ROLES,
   authorize,
   adminOnly,
-  teacherOrAdmin,
+  schoolLeaders,
   allStaff,
+  teacherOrAdmin,
+  parentOnly,
   allAuthenticated,
 };

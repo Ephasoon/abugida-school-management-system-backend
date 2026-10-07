@@ -4,17 +4,10 @@
 const db            = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
 const { sendServerError } = require('../utils/errors');
-const { validateMaxScore } = require('../utils/examRules');
+const { scopeCondition } = require('../utils/scope');
+const { createExam: createExamService, ExamError } = require('../services/exam.service');
 
 const VALID_TERMS = ['term1', 'term2', 'term3'];
-
-// Helper: get current academic year id
-const getCurrentYearId = async () => {
-  const { rows } = await db.query(
-    'SELECT id FROM academic_years WHERE is_current = TRUE LIMIT 1'
-  );
-  return rows[0]?.id || null;
-};
 
 // Helper: teacher id if this user teaches subjectId in classId (teacher_classes), else null
 const getAssignedTeacherId = async (userId, classId, subjectId) => {
@@ -51,48 +44,15 @@ const gradeToPoints = (l) => ({
 
 // POST /api/grades/exams — Create exam
 const createExam = async (req, res) => {
+  // Deprecated alias of POST /api/exam-schedule (same rules, date optional).
+  // Kept while the current HTML frontend (grades.html) still calls it.
+  res.set('Deprecation', 'true');
+  res.set('Link', '</api/exam-schedule>; rel="successor-version"');
   try {
-    const {
-      class_id, subject_id, name, exam_type,
-      term, max_score = 100, exam_date,
-    } = req.body;
-
-    if (!class_id || !subject_id || !name || !exam_type || !term) {
-      return sendError(res, 'class_id, subject_id, name, exam_type, and term are required.', 400);
-    }
-    const maxScoreError = validateMaxScore(max_score);
-    if (maxScoreError) return sendError(res, maxScoreError, 400);
-
-    // Auto-get current academic year
-    const academic_year_id = await getCurrentYearId();
-    if (!academic_year_id) {
-      return sendError(res, 'No active academic year found. Please activate an academic year first.', 400);
-    }
-
-    // Teachers may only create exams for a class+subject they are assigned to
-    let created_by = null;
-    if (req.user.role === 'teacher') {
-      created_by = await getAssignedTeacherId(req.user.id, class_id, subject_id);
-      if (!created_by) return sendError(res, NOT_ASSIGNED, 403);
-    }
-
-    const { rows } = await db.query(
-      `INSERT INTO exams
-         (class_id, subject_id, academic_year_id, name, exam_type,
-          term, max_score, exam_date, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [
-        class_id, subject_id, academic_year_id,
-        name.trim(), exam_type, term,
-        parseFloat(max_score),
-        exam_date || null,
-        created_by,
-      ]
-    );
-
-    return sendSuccess(res, rows[0], `Exam "${name}" created successfully.`, 201);
-
+    const { exam } = await createExamService(req.user, req.body, { requireDate: false });
+    return sendSuccess(res, exam, `Exam "${exam.name}" created successfully.`, 201);
   } catch (err) {
+    if (err instanceof ExamError) return sendError(res, err.message, err.status, err.errors);
     return sendServerError(res, err, 'Server error.');
   }
 };
@@ -105,6 +65,9 @@ const getExams = async (req, res) => {
     if (class_id)   { conditions.push(`e.class_id=$${idx++}`);   params.push(class_id); }
     if (term)       { conditions.push(`e.term=$${idx++}`);        params.push(term); }
     if (subject_id) { conditions.push(`e.subject_id=$${idx++}`);  params.push(subject_id); }
+    // Teachers only see exams of their own classes
+    const scoped = await scopeCondition(req.user, 'e.class_id', params);
+    if (scoped) { conditions.push(scoped); idx = params.length + 1; }
     const where = conditions.length ? 'WHERE '+conditions.join(' AND ') : '';
 
     const { rows } = await db.query(
