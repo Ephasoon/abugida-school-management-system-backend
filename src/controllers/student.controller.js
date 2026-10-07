@@ -17,16 +17,12 @@ const { parsePagination } = require('../utils/pagination');
 const { setUserActive }   = require('../utils/sessions');
 
 // ── Helper: Generate Student Number ─────────────────────────
-// Format: ASMS-2024-001, ASMS-2024-002, etc.
+// Format: ASMS-<year>-<NNN>. NNN comes from student_number_seq (migration 014),
+// so concurrent registrations never get the same number. NNN does not reset yearly.
 const generateStudentNumber = async () => {
   const year = new Date().getFullYear();
-  const { rows } = await db.query(
-    `SELECT COUNT(*) FROM students
-     WHERE student_number LIKE $1`,
-    [`ASMS-${year}-%`]
-  );
-  const count  = parseInt(rows[0].count) + 1;
-  const padded = String(count).padStart(3, '0');
+  const { rows } = await db.query("SELECT nextval('student_number_seq') AS n");
+  const padded = String(rows[0].n).padStart(3, '0');
   return `ASMS-${year}-${padded}`;
 };
 
@@ -187,6 +183,7 @@ const getStudents = async (req, res) => {
          s.enrollment_date,
          s.photo_url,
          -- Class info joined in
+         s.class_id,
          c.name        AS class_name,
          c.grade_level AS grade_level,
          c.section     AS section

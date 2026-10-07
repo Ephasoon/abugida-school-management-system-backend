@@ -4,6 +4,7 @@
 const db            = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
 const { sendServerError } = require('../utils/errors');
+const { validateMaxScore } = require('../utils/examRules');
 
 const VALID_TERMS = ['term1', 'term2', 'term3'];
 
@@ -59,6 +60,8 @@ const createExam = async (req, res) => {
     if (!class_id || !subject_id || !name || !exam_type || !term) {
       return sendError(res, 'class_id, subject_id, name, exam_type, and term are required.', 400);
     }
+    const maxScoreError = validateMaxScore(max_score);
+    if (maxScoreError) return sendError(res, maxScoreError, 400);
 
     // Auto-get current academic year
     const academic_year_id = await getCurrentYearId();
@@ -138,6 +141,18 @@ const enterGrades = async (req, res) => {
     );
     if (!examRows[0]) return sendError(res, 'Exam not found.', 404);
     const exam = examRows[0];
+
+    // Every score must be a number between 0 and the exam's max_score.
+    // Checked up front so an invalid row never leaves a half-saved batch.
+    const maxScore = parseFloat(exam.max_score);
+    const invalid = grades
+      .filter(g => g.student_id && g.score !== undefined && g.score !== null)
+      .filter(g => { const n = Number(g.score); return !Number.isFinite(n) || n < 0 || n > maxScore; })
+      .map(g => ({ student_id: g.student_id, score: g.score }));
+    if (invalid.length) {
+      return sendError(res, `Scores must be numbers between 0 and ${maxScore}.`, 400,
+        { invalid });
+    }
 
     // Teachers: only exams for their own class+subject, and only students in that class
     if (req.user.role === 'teacher') {

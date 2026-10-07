@@ -43,15 +43,24 @@ const recordPayment = async (req, res) => {
 
     // Valid enums
     const validMethods   = ['cash','bank_transfer','cbe_birr','telebirr','other'];
-    const validTerms     = ['term1','term2','term3','annual'];
-    const validCategories = ['tuition','registration','exam','library','sport','uniform','other'];
+    // Must match the term_type and fee_category enums (migrations 006, 007, 012)
+    const validTerms     = ['term1','term2','term3'];
+    const validCategories = ['tuition','registration','material','exam',
+                             'library','sport','uniform','transport','other'];
 
     if (!validMethods.includes(payment_method)) {
       return sendError(res, `payment_method must be: ${validMethods.join(', ')}`, 400);
     }
+    // Omitted values keep their defaults; unknown values are rejected, not silently replaced
+    if (term && !validTerms.includes(term)) {
+      return sendError(res, `term must be: ${validTerms.join(', ')}`, 400);
+    }
+    if (category && !validCategories.includes(category)) {
+      return sendError(res, `category must be: ${validCategories.join(', ')}`, 400);
+    }
 
-    const paymentTerm     = validTerms.includes(term) ? term : 'term1';
-    const paymentCategory = validCategories.includes(category) ? category : 'tuition';
+    const paymentTerm     = term     || 'term1';
+    const paymentCategory = category || 'tuition';
 
     const receipt_number = genReceipt();
 

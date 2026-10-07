@@ -15,6 +15,7 @@ const db            = require('../config/db');
 const { sendSuccess,
         sendError } = require('../utils/response');
 const { sendServerError } = require('../utils/errors');
+const { validateMaxScore, isScoreRuleViolation } = require('../utils/examRules');
 
 
 // ── POST /api/exam-schedule ──────────────────────────────────
@@ -49,6 +50,8 @@ const scheduleExam = async (req, res) => {
     if (!validTerms.includes(term)) {
       return sendError(res, `term must be: ${validTerms.join(', ')}`, 400);
     }
+    const maxScoreError = validateMaxScore(max_score);
+    if (maxScoreError) return sendError(res, maxScoreError, 400);
 
     // Check class exists
     const { rows: cls } = await db.query(
@@ -92,46 +95,59 @@ const scheduleExam = async (req, res) => {
       created_by = tRows[0]?.id || null;
     }
 
-    // Create exam in the exams table (extends existing exams system)
-    const { rows } = await db.query(
-      `INSERT INTO exams
-         (class_id, subject_id, academic_year_id, name, exam_type,
-          term, max_score, exam_date, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-       RETURNING *`,
-      [
-        class_id, subject_id,
-        yearRows[0]?.id || null,
-        name.trim(), exam_type, term,
-        parseFloat(max_score),
-        exam_date,
-        created_by,
-      ]
-    );
+    if (start_time && end_time && end_time <= start_time) {
+      return sendError(res, 'end_time must be after start_time.', 400);
+    }
 
-    // Store extra scheduling info in timetable-adjacent structure
-    // We'll add start_time, end_time, room, instructions to exam record
-    // via a separate exam_schedule table for extended info
-    await db.query(
-      `INSERT INTO exam_schedules
-         (exam_id, start_time, end_time, room, instructions)
-       VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (exam_id) DO UPDATE SET
-         start_time   = EXCLUDED.start_time,
-         end_time     = EXCLUDED.end_time,
-         room         = EXCLUDED.room,
-         instructions = EXCLUDED.instructions`,
-      [
-        rows[0].id,
-        start_time || null,
-        end_time   || null,
-        room?.trim() || null,
-        instructions?.trim() || null,
-      ]
-    ).catch(() => {
-      // exam_schedules table may not exist yet — that's OK
-      // Core exam is already saved
-    });
+    // The exam and its schedule details are saved together or not at all
+    const client = await db.pool.connect();
+    let rows;
+    try {
+      await client.query('BEGIN');
+
+      // Create exam in the exams table (extends existing exams system)
+      ({ rows } = await client.query(
+        `INSERT INTO exams
+           (class_id, subject_id, academic_year_id, name, exam_type,
+            term, max_score, exam_date, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         RETURNING *`,
+        [
+          class_id, subject_id,
+          yearRows[0]?.id || null,
+          name.trim(), exam_type, term,
+          parseFloat(max_score),
+          exam_date,
+          created_by,
+        ]
+      ));
+
+      // Extra scheduling details live in exam_schedules (migration 011)
+      await client.query(
+        `INSERT INTO exam_schedules
+           (exam_id, start_time, end_time, room, instructions)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (exam_id) DO UPDATE SET
+           start_time   = EXCLUDED.start_time,
+           end_time     = EXCLUDED.end_time,
+           room         = EXCLUDED.room,
+           instructions = EXCLUDED.instructions`,
+        [
+          rows[0].id,
+          start_time || null,
+          end_time   || null,
+          room?.trim() || null,
+          instructions?.trim() || null,
+        ]
+      );
+
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
 
     return sendSuccess(res, {
       ...rows[0],
@@ -253,8 +269,7 @@ const getCalendar = async (req, res) => {
     // Group by date
     const byDate = {};
     rows.forEach(exam => {
-      const dateKey = exam.exam_date?.toISOString?.()?.split('T')[0]
-                   || String(exam.exam_date).split('T')[0];
+      const dateKey = exam.exam_date; // already 'YYYY-MM-DD' (see config/db.js)
       if (!byDate[dateKey]) byDate[dateKey] = [];
       byDate[dateKey].push(exam);
     });
@@ -313,6 +328,9 @@ const updateSchedule = async (req, res) => {
     const { id } = req.params;
     const { name, exam_date, exam_type, term, max_score, room, start_time, end_time } = req.body;
 
+    const maxScoreError = validateMaxScore(max_score);
+    if (maxScoreError) return sendError(res, maxScoreError, 400);
+
     const { rows } = await db.query(
       `UPDATE exams SET
          name      = COALESCE($1, name),
@@ -328,6 +346,9 @@ const updateSchedule = async (req, res) => {
     return sendSuccess(res, rows[0], 'Exam schedule updated.');
 
   } catch (err) {
+    if (isScoreRuleViolation(err)) {
+      return sendError(res, 'max_score cannot be lower than a score already entered for this exam.', 400);
+    }
     return sendServerError(res, err, 'Server error.');
   }
 };

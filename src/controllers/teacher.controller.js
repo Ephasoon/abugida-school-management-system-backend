@@ -20,10 +20,10 @@ const { setUserActive }  = require('../utils/sessions');
 
 
 // ── Helper: Generate Teacher Number ──────────────────────────
+// TCH-<NNN> from teacher_number_seq (migration 014): unique even under concurrency
 const generateTeacherNumber = async () => {
-  const { rows } = await db.query('SELECT COUNT(*) FROM teachers');
-  const count    = parseInt(rows[0].count) + 1;
-  return `TCH-${String(count).padStart(3, '0')}`;
+  const { rows } = await db.query("SELECT nextval('teacher_number_seq') AS n");
+  return `TCH-${String(rows[0].n).padStart(3, '0')}`;
 };
 
 

@@ -119,8 +119,10 @@ const downloadDocument = async (req, res) => {
     }
     if (!fs.existsSync(rows[0].file_path)) return sendError(res, 'File not found.', 404);
     await db.query('UPDATE documents SET download_count=download_count+1 WHERE id=$1', [rows[0].id]);
-    res.setHeader('Content-Disposition', `attachment; filename="${rows[0].file_name}"`);
-    res.setHeader('Content-Type', rows[0].mime_type);
+    // res.attachment() writes an RFC 5987 header (filename*=UTF-8''...) with an
+    // ASCII fallback, so Amharic and other non-ASCII names download correctly.
+    res.attachment(rows[0].file_name);
+    if (rows[0].mime_type) res.type(rows[0].mime_type);
     res.sendFile(path.resolve(rows[0].file_path));
   } catch (err) { return sendServerError(res, err, 'Server error.'); }
 };
