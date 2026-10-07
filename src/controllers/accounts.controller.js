@@ -8,6 +8,7 @@
 //   POST   /api/accounts/parents/:parentId/children           → link a child
 //   DELETE /api/accounts/parents/:parentId/children/:studentId → unlink
 //   POST   /api/accounts/principals                → principal login
+//   PUT    /api/accounts/principals/:userId/status → deactivate / reactivate a principal
 //   POST   /api/accounts/users/:userId/reset-password → new temporary password
 //
 // New logins get a random temporary password, returned ONCE in
@@ -19,7 +20,7 @@ const db                  = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
 const { sendServerError } = require('../utils/errors');
 const { generateTemporaryPassword } = require('../utils/password');
-const { revokeAllSessions } = require('../utils/sessions');
+const { revokeAllSessions, setUserActive } = require('../utils/sessions');
 const { parsePagination } = require('../utils/pagination');
 
 const EMAIL_RE      = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -301,6 +302,34 @@ const createPrincipal = async (req, res) => {
 };
 
 
+// ── PUT /api/accounts/principals/:userId/status ──────────────
+// Same cut-off as deactivating a teacher: the login is disabled, every
+// session is revoked, and authenticate rejects existing access tokens
+// on their next request.
+const setPrincipalStatus = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { is_active } = req.body;
+    if (typeof is_active !== 'boolean') return sendError(res, 'is_active must be true or false.', 400);
+
+    const { rows } = await db.query(
+      "SELECT id, email, is_active FROM users WHERE id::text = $1 AND role = 'principal'", [userId]);
+    if (!rows[0]) return sendError(res, 'Principal account not found.', 404);
+
+    await inTransaction(async (client) => {
+      await setUserActive(rows[0].id, is_active, client);
+      await audit(client, req, is_active ? 'account.principal_reactivated' : 'account.principal_deactivated',
+        'user', rows[0].id, { email: rows[0].email });
+    });
+
+    return sendSuccess(res, { user_id: rows[0].id, email: rows[0].email, role: 'principal', is_active },
+      is_active ? 'Principal account reactivated.' : 'Principal account deactivated. All sessions were signed out.');
+  } catch (err) {
+    return sendServerError(res, err, 'Server error while updating the principal account.');
+  }
+};
+
+
 // ── POST /api/accounts/users/:userId/reset-password ──────────
 const resetPassword = async (req, res) => {
   try {
@@ -330,5 +359,5 @@ const resetPassword = async (req, res) => {
 
 module.exports = {
   getUsers, createStudentLogin, getParents, createParent,
-  linkChild, unlinkChild, createPrincipal, resetPassword,
+  linkChild, unlinkChild, createPrincipal, setPrincipalStatus, resetPassword,
 };

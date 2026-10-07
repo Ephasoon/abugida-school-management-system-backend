@@ -4,7 +4,7 @@ const express = require('express');
 const router  = express.Router();
 const {
   getUsers, createStudentLogin, getParents, createParent,
-  linkChild, unlinkChild, createPrincipal, resetPassword,
+  linkChild, unlinkChild, createPrincipal, setPrincipalStatus, resetPassword,
 } = require('../controllers/accounts.controller');
 const { authenticate } = require('../middleware/auth.middleware');
 const { adminOnly }    = require('../middleware/role.middleware');
@@ -20,5 +20,6 @@ router.post  ('/parents',                              createParent);
 router.post  ('/parents/:parentId/children',           linkChild);
 router.delete('/parents/:parentId/children/:studentId', unlinkChild);
 router.post  ('/principals',                           createPrincipal);
+router.put   ('/principals/:userId/status',            setPrincipalStatus);   // { is_active }
 
 module.exports = router;
