@@ -29,6 +29,19 @@ This is the source of truth for who may do what. Every API route must match it.
 - **View only:** read endpoints are allowed; create, update and delete are not.
 - **Own password:** every role may change its own password (`POST /api/auth/change-password`). Only admins create accounts or reset other users' passwords.
 
+## Decisions for cases the table does not cover (2026-10-08)
+
+| Topic | Decision |
+|---|---|
+| Teacher directory (`GET /teachers`, `/teachers/:id`) | Admin + principal see all teachers. A teacher sees **only their own** teacher record. |
+| Parent timetable | Kept: a parent may view their own child's class timetable. "No" in the table means no setup rights. |
+| Exam schedules (reads) | Same as grades view: admin + principal all; teacher own classes; parent own children's classes; student own class. Writes stay admin-only. |
+| ID card PDFs | Admin only (student and teacher ID cards). |
+| Principal and documents | View and download all documents (including private), and upload. Delete stays admin-only. |
+| Parent fees | New all-children endpoint (balance per child plus a family total); the per-child endpoint stays. |
+| Principal accounts | Admin creates them (email + display name, temporary password, forced change). |
+| Parents per student | No limit. At most one parent per student can be the primary contact (already enforced by the database). |
+
 ---
 
 ## Audit of the current API (before Phase 1)
