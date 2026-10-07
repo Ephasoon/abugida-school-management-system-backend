@@ -7,6 +7,7 @@
 //   PUT  /api/teachers/:id          → update teacher
 //   POST /api/teachers/:id/subjects → assign subjects
 //   POST /api/teachers/:id/classes  → assign to class+subject
+//   DELETE /api/teachers/:id/classes/:classId/:subjectId → remove that assignment
 //   GET  /api/teachers/subjects     → list all subjects
 // ============================================================
 
@@ -156,7 +157,7 @@ const getTeacherById = async (req, res) => {
     );
 
     const { rows: classes } = await db.query(
-      `SELECT c.id, c.name, c.grade_level, c.section, s.name AS subject_name
+      `SELECT c.id, c.name, c.grade_level, c.section, tc.subject_id, s.name AS subject_name
        FROM teacher_classes tc
        JOIN classes  c ON c.id = tc.class_id
        JOIN subjects s ON s.id = tc.subject_id
@@ -258,6 +259,27 @@ const assignClass = async (req, res) => {
 };
 
 
+// ── DELETE /api/teachers/:id/classes/:classId/:subjectId ─────
+const removeClassAssignment = async (req, res) => {
+  try {
+    const { id, classId, subjectId } = req.params;
+
+    // ::text comparison: a malformed id simply matches nothing (404, not 500)
+    const { rows } = await db.query(
+      `DELETE FROM teacher_classes
+       WHERE teacher_id::text = $1 AND class_id::text = $2 AND subject_id::text = $3
+       RETURNING id`,
+      [id, classId, subjectId]
+    );
+    if (!rows[0]) return sendError(res, 'Assignment not found.', 404);
+    return sendSuccess(res, null, 'Teacher removed from class.');
+
+  } catch (err) {
+    return sendServerError(res, err, 'Server error.');
+  }
+};
+
+
 // ── GET /api/teachers/subjects ───────────────────────────────
 const getAllSubjects = async (req, res) => {
   try {
@@ -273,5 +295,5 @@ const getAllSubjects = async (req, res) => {
 
 module.exports = {
   createTeacher, getTeachers, getTeacherById,
-  updateTeacher, assignSubjects, assignClass, getAllSubjects,
+  updateTeacher, assignSubjects, assignClass, removeClassAssignment, getAllSubjects,
 };

@@ -3,7 +3,7 @@ const express  = require('express');
 const router   = express.Router();
 const {
   createTeacher, getTeachers, getTeacherById,
-  updateTeacher, assignSubjects, assignClass, getAllSubjects,
+  updateTeacher, assignSubjects, assignClass, removeClassAssignment, getAllSubjects,
 } = require('../controllers/teacher.controller');
 const { authenticate }        = require('../middleware/auth.middleware');
 const { adminOnly, teacherOrAdmin } = require('../middleware/role.middleware');
@@ -17,5 +17,6 @@ router.get ('/:id',               teacherOrAdmin, getTeacherById);  // Teacher p
 router.put ('/:id',               adminOnly,      updateTeacher);   // Update teacher
 router.post('/:id/subjects',      adminOnly,      assignSubjects);  // Assign subjects
 router.post('/:id/classes',       adminOnly,      assignClass);     // Assign class
+router.delete('/:id/classes/:classId/:subjectId', adminOnly, removeClassAssignment); // Unassign
 
 module.exports = router;
