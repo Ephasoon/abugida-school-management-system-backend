@@ -141,3 +141,15 @@ There is no `principal` role yet (`user_role` = admin, teacher, student, parent)
 |---|---|---|
 | `POST /change-password` | every role, own password | ✅ |
 | Create accounts | teachers only (admin) | ❌ no student or parent account creation, no parent-student linking, no password reset (Group C) |
+
+---
+
+## Status after Phase 1
+
+All mismatches listed above are resolved on branch `phase-1-roles`, and the "Decisions" table is implemented:
+
+- **Principal role:** exists (migration 016), with whole-school read access, document upload, and no create/change/delete elsewhere.
+- **One scoping rule for teachers, students and parents:** `src/utils/scope.js`, used by `requireStudentAccess`, `requireClassAccess` and `requireOwnTeacher` (`src/middleware/studentAccess.middleware.js`) and by the list queries.
+- **Named role policies:** `src/middleware/role.middleware.js` (`adminOnly`, `schoolLeaders`, `allStaff`, `teacherOrAdmin`, `parentOnly`, `allAuthenticated`).
+- **Account management:** admin-only, `/api/accounts`.
+- **Verification:** a role × endpoint test matrix on the scratch database (218 checks) passes.
