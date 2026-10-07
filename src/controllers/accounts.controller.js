@@ -10,6 +10,7 @@
 //   DELETE /api/accounts/parents/:parentId/children/:studentId → unlink
 //   POST   /api/accounts/principals                → principal login
 //   PUT    /api/accounts/principals/:userId/status → deactivate / reactivate a principal
+//   PUT    /api/accounts/parents/:parentId/status  → deactivate / reactivate a parent
 //   POST   /api/accounts/users/:userId/reset-password → new temporary password
 //
 // New logins get a random temporary password, returned ONCE in
@@ -338,30 +339,51 @@ const createPrincipal = async (req, res) => {
 };
 
 
-// ── PUT /api/accounts/principals/:userId/status ──────────────
+// ── Deactivate / reactivate an account ───────────────────────
 // Same cut-off as deactivating a teacher: the login is disabled, every
-// session is revoked, and authenticate rejects existing access tokens
-// on their next request.
+// session is revoked, and authenticate rejects existing access tokens on
+// their next request. Reactivating restores login with the same password.
+// account: { user_id, email, role }
+const applyAccountStatus = async (req, res, account, label) => {
+  const { is_active } = req.body;
+  if (typeof is_active !== 'boolean') return sendError(res, 'is_active must be true or false.', 400);
+
+  await inTransaction(async (client) => {
+    await setUserActive(account.user_id, is_active, client);
+    await audit(client, req, `account.${account.role}_${is_active ? 'reactivated' : 'deactivated'}`,
+      'user', account.user_id, { email: account.email });
+  });
+
+  return sendSuccess(res, { user_id: account.user_id, email: account.email, role: account.role, is_active },
+    is_active ? `${label} account reactivated.` : `${label} account deactivated. All sessions were signed out.`);
+};
+
+// ── PUT /api/accounts/principals/:userId/status ──────────────
 const setPrincipalStatus = async (req, res) => {
   try {
-    const { userId } = req.params;
-    const { is_active } = req.body;
-    if (typeof is_active !== 'boolean') return sendError(res, 'is_active must be true or false.', 400);
-
     const { rows } = await db.query(
-      "SELECT id, email, is_active FROM users WHERE id::text = $1 AND role = 'principal'", [userId]);
+      "SELECT id AS user_id, email, role FROM users WHERE id::text = $1 AND role = 'principal'",
+      [req.params.userId]);
     if (!rows[0]) return sendError(res, 'Principal account not found.', 404);
-
-    await inTransaction(async (client) => {
-      await setUserActive(rows[0].id, is_active, client);
-      await audit(client, req, is_active ? 'account.principal_reactivated' : 'account.principal_deactivated',
-        'user', rows[0].id, { email: rows[0].email });
-    });
-
-    return sendSuccess(res, { user_id: rows[0].id, email: rows[0].email, role: 'principal', is_active },
-      is_active ? 'Principal account reactivated.' : 'Principal account deactivated. All sessions were signed out.');
+    return await applyAccountStatus(req, res, rows[0], 'Principal');
   } catch (err) {
     return sendServerError(res, err, 'Server error while updating the principal account.');
+  }
+};
+
+// ── PUT /api/accounts/parents/:parentId/status ───────────────
+const setParentStatus = async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT p.user_id, u.email, u.role FROM parents p
+       LEFT JOIN users u ON u.id = p.user_id
+       WHERE p.id::text = $1`,
+      [req.params.parentId]);
+    if (!rows[0]) return sendError(res, 'Parent not found.', 404);
+    if (!rows[0].user_id) return sendError(res, 'This parent has no login to activate or deactivate.', 400);
+    return await applyAccountStatus(req, res, rows[0], 'Parent');
+  } catch (err) {
+    return sendServerError(res, err, 'Server error while updating the parent account.');
   }
 };
 
@@ -396,5 +418,5 @@ const resetPassword = async (req, res) => {
 module.exports = {
   getUsers, createStudentLogin, getParents, createParent,
   createParentLogin, linkChild, unlinkChild, createPrincipal,
-  setPrincipalStatus, resetPassword,
+  setPrincipalStatus, setParentStatus, resetPassword,
 };
