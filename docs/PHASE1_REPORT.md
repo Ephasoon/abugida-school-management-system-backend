@@ -14,6 +14,8 @@ Branch `phase-1-roles` in `asms-backend` (not pushed). Every change was verified
 | `df2187c` | **Group C.** School-created accounts (`/api/accounts`): student and parent logins, parent ↔ student links, principals, password reset |
 | `d9779f6` | **Group D.** Finance outstanding fix, zero-amount payments, `GET /parent/fees`, `GET /dashboard/teacher` |
 | `d3136cf` | `PERMISSIONS.md`: status after Phase 1 |
+| `1aade6f` | **Addition 1.** One exam-creation rule for both exam endpoints (shared `services/exam.service.js`) |
+| `094289f` | **Addition 2.** Admin can deactivate and reactivate a principal |
 
 ---
 
@@ -82,6 +84,43 @@ Neither migration changes existing rows.
   - today's timetable
   - no finance fields
 
+### Addition 1 — One rule for creating exams
+Exam creation existed in two places with different rules and validation. Both endpoints now call `src/services/exam.service.js`:
+
+- **Who may create:**
+  - admin: any class
+  - teacher: only a class + subject assigned in `teacher_classes`
+  - principal, parent and student: 403
+- **Same validation on both endpoints:**
+  - required fields
+  - `exam_type` and `term` values
+  - `max_score` in (0, 999.99]
+  - `YYYY-MM-DD` dates
+  - `end_time` after `start_time`
+  - class and subject must exist (404)
+  - an active academic year is required (400; `/exam-schedule` used to fail with a 500)
+- **Storage:** the exam and its schedule details are saved in one transaction.
+
+**Which endpoint the React frontend should use: `POST /api/exam-schedule`.** It does everything the other one does, and also takes time, room and instructions and checks for clashes on the same date.
+
+| Endpoint | Recommendation |
+|---|---|
+| `POST /api/exam-schedule` | **Use.** Date required; start/end time, room, instructions; conflict check |
+| `POST /api/grades/exams` | **Deprecate.** Same rules (it calls the same service). Kept because the current `grades.html` uses it; responses carry `Deprecation: true` and `Link: </api/exam-schedule>`. Remove it once the old frontend is retired. |
+
+One trade-off: `/exam-schedule` requires a date, while `/grades/exams` allows undated exams (for example an assignment). If the React frontend should create undated assessments, either use the due date as `exam_date`, or make the date optional on `/exam-schedule` before `/grades/exams` is removed (see section 6).
+
+Editing and cancelling exams (`PUT`/`DELETE /exam-schedule/:id`) remain admin-only; the rule above covers creation.
+
+### Addition 2 — Deactivate and reactivate a principal
+- `PUT /api/accounts/principals/:userId/status` with `{ "is_active": true | false }`, admin only. It accepts principal accounts only; other users get 404.
+- **Same cut-off as teachers** (it reuses `setUserActive`):
+  - the login is disabled
+  - every refresh session is revoked
+  - an access token already issued is rejected on its next request
+- Reactivating restores login with the same password; old sessions stay revoked.
+- Both actions are recorded in `audit_logs`.
+
 ---
 
 ## 4. API for the new React frontend
@@ -147,7 +186,7 @@ Roles: **A** admin · **P** principal · **T** teacher (own classes) · **Pa** p
 | Method & path | Who | Notes |
 |---|---|---|
 | `GET /grades/exams` | A, P, T | teachers: own classes |
-| `POST /grades/exams` | A, T (own class+subject) | `max_score` in (0, 999.99] |
+| `POST /grades/exams` | A, T (own class+subject) | **deprecated**, use `POST /exam-schedule`; date optional |
 | `POST /grades` | A, T (own class+subject) | `{ exam_id, grades: [{ student_id, score, remarks }] }`; scores 0..max |
 | `GET /grades/report-card/:id` | A, P, T, Pa, S | `?term=term1|term2|term3` |
 | `GET /pdf/report-card/:id` | A, P, T, Pa, S | PDF |
@@ -158,7 +197,8 @@ Roles: **A** admin · **P** principal · **T** teacher (own classes) · **Pa** p
 |---|---|---|
 | `GET /exam-schedule`, `/upcoming?days=`, `/calendar?month=&year=` | all | scoped to the user's classes |
 | `GET /exam-schedule/class/:classId` | all (scoped) | |
-| `POST`, `PUT /:id`, `DELETE /:id` | A | schedule includes `start_time`, `end_time`, `room`, `instructions` |
+| `POST /exam-schedule` | A, T (own class+subject) | **create exams here**: `{ class_id, subject_id, name, exam_type, term, exam_date, max_score?, start_time?, end_time?, room?, instructions? }` |
+| `PUT /exam-schedule/:id`, `DELETE /exam-schedule/:id` | A | edit / cancel |
 
 ### Timetable and academic years
 | Method & path | Who | Notes |
@@ -198,6 +238,7 @@ Roles: **A** admin · **P** principal · **T** teacher (own classes) · **Pa** p
 | `POST /accounts/parents/:parentId/children` | `{ student_id, relationship: father|mother|guardian|other, is_primary? }` |
 | `DELETE /accounts/parents/:parentId/children/:studentId` | |
 | `POST /accounts/principals` | `{ email, display_name }` → `temporary_password` |
+| `PUT /accounts/principals/:userId/status` | `{ is_active }`: deactivate (immediate cut-off, sessions revoked) / reactivate |
 
 ---
 
@@ -205,7 +246,9 @@ Roles: **A** admin · **P** principal · **T** teacher (own classes) · **Pa** p
 
 | Suite | Result |
 |---|---|
-| Group B role × endpoint matrix (6 users: admin, principal, teacher with/without assignments, student, parent) plus list-scoping checks | **218 pass** |
+| Group B role × endpoint matrix (6 users: admin, principal, teacher with/without assignments, student, parent) plus list-scoping checks | **220 pass** |
+| Addition 1: both exam endpoints, same cases (8 roles/assignments × 6 invalid inputs each, storage, conflicts, deprecation headers, no active year) | **39 pass** (run twice) |
+| Addition 2: principal deactivate/reactivate (permissions, immediate cut-off, session revocation, audit) | **16 pass** |
 | Group C accounts (permissions, student/parent/principal creation, links, reset, audit) | **46 pass** |
 | Group D (finance 23,600/22,600 → 1,000 via API and in `finance.html`, parent family fees, teacher dashboard) | **30 pass** |
 | Phase 0 regression: curl suites (G1, G2 ×2, G3, assignments) and browser suites (G5 55, parent portal, follow-ups 28) | all pass |
@@ -215,10 +258,11 @@ Roles: **A** admin · **P** principal · **T** teacher (own classes) · **Pa** p
 ## 6. Needs your decision
 
 1. **Existing parents without a login.** `POST /accounts/parents` creates new parents. There is no endpoint to add a login to a parent row that already exists without one. Add `POST /accounts/parents/:parentId/login`?
-2. **Deactivating parents and principals.** Teachers and students can be deactivated (logins disabled). For parent and principal accounts there's no deactivate endpoint yet, only password reset. Add `PUT /accounts/users/:userId { is_active }`?
+2. **Deactivating parents.** Principals can now be deactivated (addition 2), as can teachers and students. Parent accounts still can't, only reset. Add the same endpoint for parents?
 3. **Staff notes hidden from students and parents.** I removed `notes` from student records for those two roles, as a conservative default. Confirm, or say whether they should see them.
 4. **"Outstanding" is a net figure** (all due − all paid). An overpaying student hides other students' debt. Alternatives: the sum of positive balances only (matches `/finance/unpaid`), or show both.
 5. **Graduated students lose their login** (Phase 0 rule, still open).
+6. **Undated exams after `/grades/exams` is removed.** Should `POST /exam-schedule` accept an exam without a date (assignments, projects), or must every assessment have a date?
 
 ## 7. Notes for the current HTML frontend (no changes made)
 
