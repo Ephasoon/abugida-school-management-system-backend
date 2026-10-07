@@ -1,4 +1,4 @@
-\# Abugida School Management System (ASMS)
+# Abugida School Management System (ASMS)
 
 
 
@@ -6,23 +6,23 @@
 
 
 
-\*\*Abugida School Management System (ASMS)\*\* is a WithUnion product currently under active development. The system is being built to provide schools with a centralized platform for managing students, teachers, classes, attendance, examinations, grades, finance, timetables, documents, parents, and analytics.
+**Abugida School Management System (ASMS)** is a WithUnion product currently under active development. The system is being built to provide schools with a centralized platform for managing students, teachers, classes, attendance, examinations, grades, finance, timetables, documents, parents, and analytics.
 
 
 
-> \*\*Development Status:\*\* 🚧 Active Development — approximately 55% complete  
+> **Development Status:** 🚧 Active Development — approximately 55% complete  
 
-> \*\*Version:\*\* 0.1.0  
+> **Version:** 0.1.0  
 
-> \*\*Backend:\*\* Node.js + Express + PostgreSQL
-
-
-
-\---
+> **Backend:** Node.js + Express + PostgreSQL
 
 
 
-\## 📌 Project Overview
+---
+
+
+
+## 📌 Project Overview
 
 
 
@@ -34,33 +34,33 @@ The backend provides:
 
 
 
-\- Authentication and authorization
+- Authentication and authorization
 
-\- Student management
+- Student management
 
-\- Teacher management
+- Teacher management
 
-\- Parent management
+- Parent management
 
-\- Academic year management
+- Academic year management
 
-\- Class and subject management
+- Class and subject management
 
-\- Attendance management
+- Attendance management
 
-\- Examination and grading
+- Examination and grading
 
-\- Finance management
+- Finance management
 
-\- Timetable management
+- Timetable management
 
-\- Document management
+- Document management
 
-\- PDF generation
+- PDF generation
 
-\- Analytics
+- Analytics
 
-\- Role-based access control
+- Role-based access control
 
 
 
@@ -68,11 +68,11 @@ The project is being developed incrementally, with additional modules and improv
 
 
 
-\---
+---
 
 
 
-\## 🎯 Project Goals
+## 🎯 Project Goals
 
 
 
@@ -80,53 +80,53 @@ The primary goals of ASMS are to:
 
 
 
-\- Reduce manual school administration
+- Reduce manual school administration
 
-\- Centralize student and staff information
+- Centralize student and staff information
 
-\- Improve academic record management
+- Improve academic record management
 
-\- Simplify attendance and examination workflows
+- Simplify attendance and examination workflows
 
-\- Provide role-based access to school information
+- Provide role-based access to school information
 
-\- Improve communication between schools, teachers, students, and parents
+- Improve communication between schools, teachers, students, and parents
 
-\- Provide useful administrative and academic analytics
+- Provide useful administrative and academic analytics
 
-\- Establish a scalable foundation for future school management features
-
-
-
-\---
+- Establish a scalable foundation for future school management features
 
 
 
-\## ✨ Current Features
+---
 
 
 
-\### Authentication
+## ✨ Current Features
 
 
 
-\- User authentication
-
-\- JWT access tokens
-
-\- Refresh token authentication
-
-\- HTTP-only refresh token cookies
-
-\- Password hashing using bcrypt
-
-\- Role-based authorization
-
-\- Protected API routes
+### Authentication
 
 
 
-\### User Roles
+- User authentication
+
+- JWT access tokens
+
+- Refresh token authentication
+
+- HTTP-only refresh token cookies
+
+- Password hashing using bcrypt
+
+- Role-based authorization
+
+- Protected API routes
+
+
+
+### User Roles
 
 
 
@@ -134,145 +134,145 @@ The current authentication system supports:
 
 
 
-\- Admin
+- Admin
 
-\- Teacher
+- Teacher
 
-\- Student
+- Student
 
-\- Parent
+- Parent
 
 
 
-\### Academic Management
+### Academic Management
 
 
 
-\- Academic year management
+- Academic year management
 
-\- Class management
+- Class management
 
-\- Subject management
+- Subject management
 
-\- Teacher-subject assignments
+- Teacher-subject assignments
 
-\- Teacher-class assignments
+- Teacher-class assignments
 
 
 
-\### Student Management
+### Student Management
 
 
 
-\- Student profiles
+- Student profiles
 
-\- Student records
+- Student records
 
-\- Parent relationships
+- Parent relationships
 
-\- Student-related documents
+- Student-related documents
 
-\- Student status management
+- Student status management
 
 
 
-\### Teacher Management
+### Teacher Management
 
 
 
-\- Teacher profiles
+- Teacher profiles
 
-\- Teacher numbers
+- Teacher numbers
 
-\- Teacher assignments
+- Teacher assignments
 
-\- Qualifications
+- Qualifications
 
-\- Specializations
+- Specializations
 
-\- Teacher subjects
+- Teacher subjects
 
-\- Teacher classes
+- Teacher classes
 
 
 
-\### Attendance
+### Attendance
 
 
 
-\- Attendance records
+- Attendance records
 
-\- Attendance management
+- Attendance management
 
-\- Attendance reporting
+- Attendance reporting
 
 
 
-\### Examinations \& Grades
+### Examinations & Grades
 
 
 
-\- Examination schedules
+- Examination schedules
 
-\- Grade management
+- Grade management
 
-\- Academic performance records
+- Academic performance records
 
 
 
-\### Finance
+### Finance
 
 
 
-\- Financial records
+- Financial records
 
-\- Finance-related management and reporting
+- Finance-related management and reporting
 
 
 
-\### Timetable
+### Timetable
 
 
 
-\- Class timetables
+- Class timetables
 
-\- Teacher assignments
+- Teacher assignments
 
-\- Schedule management
+- Schedule management
 
 
 
-\### Documents \& PDF
+### Documents & PDF
 
 
 
-\- Document management
+- Document management
 
-\- PDF generation
+- PDF generation
 
-\- Report-card generation
+- Report-card generation
 
-\- ID-card generation
+- ID-card generation
 
 
 
-\### Analytics
+### Analytics
 
 
 
-\- Administrative analytics
+- Administrative analytics
 
-\- Academic analytics
+- Academic analytics
 
-\- Dashboard data
+- Dashboard data
 
 
 
-\---
+---
 
 
 
-\## 🏗️ Architecture
+## 🏗️ Architecture
 
 
 
@@ -284,41 +284,41 @@ ASMS follows a modular backend architecture:
 
 Frontend
 
-&#x20;  │
+   │
 
-&#x20;  │ HTTP / REST API
+   │ HTTP / REST API
 
-&#x20;  ▼
+   ▼
 
 Node.js + Express
 
-&#x20;  │
+   │
 
-&#x20;  ├── Routes
+   ├── Routes
 
-&#x20;  │
+   │
 
-&#x20;  ├── Controllers
+   ├── Controllers
 
-&#x20;  │
+   │
 
-&#x20;  ├── Middleware
+   ├── Middleware
 
-&#x20;  │
+   │
 
-&#x20;  ├── Services
+   ├── Services
 
-&#x20;  │
+   │
 
-&#x20;  ├── Utilities
+   ├── Utilities
 
-&#x20;  │
+   │
 
-&#x20;  └── Database Layer
+   └── Database Layer
 
-&#x20;  │
+   │
 
-&#x20;  ▼
+   ▼
 
 PostgreSQL
 
