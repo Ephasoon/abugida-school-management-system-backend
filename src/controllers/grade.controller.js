@@ -3,6 +3,10 @@
 
 const db            = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
+const { sendServerError } = require('../utils/errors');
+const { validateMaxScore } = require('../utils/examRules');
+
+const VALID_TERMS = ['term1', 'term2', 'term3'];
 
 // Helper: get current academic year id
 const getCurrentYearId = async () => {
@@ -11,6 +15,19 @@ const getCurrentYearId = async () => {
   );
   return rows[0]?.id || null;
 };
+
+// Helper: teacher id if this user teaches subjectId in classId (teacher_classes), else null
+const getAssignedTeacherId = async (userId, classId, subjectId) => {
+  const { rows } = await db.query(
+    `SELECT t.id FROM teachers t
+     JOIN teacher_classes tc ON tc.teacher_id = t.id
+     WHERE t.user_id = $1 AND tc.class_id::text = $2 AND tc.subject_id::text = $3`,
+    [userId, String(classId), String(subjectId)]
+  );
+  return rows[0]?.id || null;
+};
+
+const NOT_ASSIGNED = 'Access denied. You are not assigned to teach this subject in this class.';
 
 // Helper: grade letter from percentage
 const percentageToGrade = (pct) => {
@@ -43,6 +60,8 @@ const createExam = async (req, res) => {
     if (!class_id || !subject_id || !name || !exam_type || !term) {
       return sendError(res, 'class_id, subject_id, name, exam_type, and term are required.', 400);
     }
+    const maxScoreError = validateMaxScore(max_score);
+    if (maxScoreError) return sendError(res, maxScoreError, 400);
 
     // Auto-get current academic year
     const academic_year_id = await getCurrentYearId();
@@ -50,13 +69,11 @@ const createExam = async (req, res) => {
       return sendError(res, 'No active academic year found. Please activate an academic year first.', 400);
     }
 
-    // Get teacher id if user is teacher
+    // Teachers may only create exams for a class+subject they are assigned to
     let created_by = null;
     if (req.user.role === 'teacher') {
-      const { rows: tRows } = await db.query(
-        'SELECT id FROM teachers WHERE user_id = $1', [req.user.id]
-      );
-      created_by = tRows[0]?.id || null;
+      created_by = await getAssignedTeacherId(req.user.id, class_id, subject_id);
+      if (!created_by) return sendError(res, NOT_ASSIGNED, 403);
     }
 
     const { rows } = await db.query(
@@ -76,8 +93,7 @@ const createExam = async (req, res) => {
     return sendSuccess(res, rows[0], `Exam "${name}" created successfully.`, 201);
 
   } catch (err) {
-    console.error('createExam:', err.message);
-    return sendError(res, 'Server error: ' + err.message, 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -107,8 +123,7 @@ const getExams = async (req, res) => {
     );
     return sendSuccess(res, rows, `Found ${rows.length} exam(s).`);
   } catch (err) {
-    console.error('getExams:', err.message);
-    return sendError(res, 'Server error: ' + err.message, 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -126,6 +141,36 @@ const enterGrades = async (req, res) => {
     );
     if (!examRows[0]) return sendError(res, 'Exam not found.', 404);
     const exam = examRows[0];
+
+    // Every score must be a number between 0 and the exam's max_score.
+    // Checked up front so an invalid row never leaves a half-saved batch.
+    const maxScore = parseFloat(exam.max_score);
+    const invalid = grades
+      .filter(g => g.student_id && g.score !== undefined && g.score !== null)
+      .filter(g => { const n = Number(g.score); return !Number.isFinite(n) || n < 0 || n > maxScore; })
+      .map(g => ({ student_id: g.student_id, score: g.score }));
+    if (invalid.length) {
+      return sendError(res, `Scores must be numbers between 0 and ${maxScore}.`, 400,
+        { invalid });
+    }
+
+    // Teachers: only exams for their own class+subject, and only students in that class
+    if (req.user.role === 'teacher') {
+      const teacherId = await getAssignedTeacherId(req.user.id, exam.class_id, exam.subject_id);
+      if (!teacherId) return sendError(res, NOT_ASSIGNED, 403);
+
+      const ids = grades.filter(g => g.student_id).map(g => String(g.student_id));
+      const { rows: inClass } = await db.query(
+        'SELECT id FROM students WHERE class_id = $1 AND id::text = ANY($2)',
+        [exam.class_id, ids]
+      );
+      const allowed = new Set(inClass.map(r => r.id));
+      const outside = ids.filter(id => !allowed.has(id));
+      if (outside.length) {
+        return sendError(res, "Some students are not in this exam's class.", 403,
+          { student_ids: outside });
+      }
+    }
 
     let saved = 0;
     for (const g of grades) {
@@ -148,8 +193,7 @@ const enterGrades = async (req, res) => {
       `Grades saved for ${saved} student(s).`);
 
   } catch (err) {
-    console.error('enterGrades:', err.message);
-    return sendError(res, 'Server error: ' + err.message, 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -169,7 +213,11 @@ const getReportCard = async (req, res) => {
     );
     if (!stuRows[0]) return sendError(res, 'Student not found.', 404);
 
-    const termFilter = term ? `AND e.term='${term}'` : '';
+    if (term && !VALID_TERMS.includes(term)) {
+      return sendError(res, `term must be one of: ${VALID_TERMS.join(', ')}`, 400);
+    }
+    const termFilter = term ? 'AND e.term = $2' : '';
+    const gradeParams = term ? [studentId, term] : [studentId];
     const { rows: gradeRows } = await db.query(
       `SELECT s.name AS subject, e.term, e.exam_type, e.max_score,
               g.score, g.grade_letter,
@@ -178,7 +226,7 @@ const getReportCard = async (req, res) => {
        JOIN exams    e ON e.id=g.exam_id
        JOIN subjects s ON s.id=e.subject_id
        WHERE g.student_id=$1 ${termFilter}
-       ORDER BY s.name, e.exam_type`, [studentId]
+       ORDER BY s.name, e.exam_type`, gradeParams
     );
 
     // Group by subject
@@ -224,8 +272,7 @@ const getReportCard = async (req, res) => {
     }, 'Report card retrieved.');
 
   } catch (err) {
-    console.error('getReportCard:', err.message);
-    return sendError(res, 'Server error: ' + err.message, 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 

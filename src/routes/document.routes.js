@@ -35,7 +35,10 @@ const fileFilter = (req, file, cb) => {
     : cb(new Error('File type not allowed. Use PDF, JPG, PNG, DOC, DOCX, XLS, XLSX.'), false);
 };
 
-const upload = multer({ storage, fileFilter, limits:{ fileSize: 10*1024*1024 } });
+// defParamCharset: decode upload filenames as UTF-8 (multer's default, latin1,
+// garbles Amharic and other non-ASCII names)
+const upload = multer({ storage, fileFilter, defParamCharset: 'utf8',
+                        limits:{ fileSize: 10*1024*1024 } });
 
 // Routes
 router.use(authenticate);

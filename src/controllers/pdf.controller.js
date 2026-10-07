@@ -14,6 +14,9 @@ const {
   generateTeacherIDCard,
 } = require('../services/pdf.service');
 const { sendError } = require('../utils/response');
+const { sendServerError } = require('../utils/errors');
+
+const VALID_TERMS = ['term1', 'term2', 'term3'];
 
 
 // ── GET /api/pdf/report-card/:studentId ──────────────────────
@@ -38,7 +41,11 @@ const getReportCardPDF = async (req, res) => {
     }
 
     // Get grades grouped by subject
-    const termFilter = term ? `AND e.term = '${term}'` : '';
+    if (term && !VALID_TERMS.includes(term)) {
+      return sendError(res, `term must be one of: ${VALID_TERMS.join(', ')}`, 400);
+    }
+    const termFilter = term ? 'AND e.term = $2' : '';
+    const gradeParams = term ? [studentId, term] : [studentId];
     const { rows: gradeRows } = await db.query(
       `SELECT s.name AS subject, s.name AS subject_name, s.code,
               e.term, e.exam_type, e.max_score,
@@ -49,7 +56,7 @@ const getReportCardPDF = async (req, res) => {
        JOIN subjects s ON s.id  = e.subject_id
        WHERE g.student_id = $1 ${termFilter}
        ORDER BY s.name, e.exam_type`,
-      [studentId]
+      gradeParams
     );
 
     // Group by subject and calculate averages
@@ -125,10 +132,10 @@ const getReportCardPDF = async (req, res) => {
     await generateReportCard(data, res);
 
   } catch (err) {
-    console.error('getReportCardPDF error:', err);
     if (!res.headersSent) {
-      return sendError(res, 'Server error while generating report card.', 500);
+      return sendServerError(res, err, 'Server error while generating report card.');
     }
+    console.error('getReportCardPDF failed after streaming started:', err);
   }
 };
 
@@ -159,8 +166,8 @@ const getStudentIDCardPDF = async (req, res) => {
     }, res);
 
   } catch (err) {
-    console.error('getStudentIDCardPDF error:', err);
-    if (!res.headersSent) sendError(res, 'Server error.', 500);
+    if (!res.headersSent) return sendServerError(res, err, 'Server error.');
+    console.error('ID card PDF failed after streaming started:', err);
   }
 };
 
@@ -188,8 +195,8 @@ const getTeacherIDCardPDF = async (req, res) => {
     }, res);
 
   } catch (err) {
-    console.error('getTeacherIDCardPDF error:', err);
-    if (!res.headersSent) sendError(res, 'Server error.', 500);
+    if (!res.headersSent) return sendServerError(res, err, 'Server error.');
+    console.error('ID card PDF failed after streaming started:', err);
   }
 };
 

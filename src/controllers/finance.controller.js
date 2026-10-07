@@ -3,6 +3,8 @@
 
 const db            = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
+const { sendServerError } = require('../utils/errors');
+const { parsePagination } = require('../utils/pagination');
 
 // Helper: get current academic year
 const getCurrentYear = async () => {
@@ -41,15 +43,24 @@ const recordPayment = async (req, res) => {
 
     // Valid enums
     const validMethods   = ['cash','bank_transfer','cbe_birr','telebirr','other'];
-    const validTerms     = ['term1','term2','term3','annual'];
-    const validCategories = ['tuition','registration','exam','library','sport','uniform','other'];
+    // Must match the term_type and fee_category enums (migrations 006, 007, 012)
+    const validTerms     = ['term1','term2','term3'];
+    const validCategories = ['tuition','registration','material','exam',
+                             'library','sport','uniform','transport','other'];
 
     if (!validMethods.includes(payment_method)) {
       return sendError(res, `payment_method must be: ${validMethods.join(', ')}`, 400);
     }
+    // Omitted values keep their defaults; unknown values are rejected, not silently replaced
+    if (term && !validTerms.includes(term)) {
+      return sendError(res, `term must be: ${validTerms.join(', ')}`, 400);
+    }
+    if (category && !validCategories.includes(category)) {
+      return sendError(res, `category must be: ${validCategories.join(', ')}`, 400);
+    }
 
-    const paymentTerm     = validTerms.includes(term) ? term : 'term1';
-    const paymentCategory = validCategories.includes(category) ? category : 'tuition';
+    const paymentTerm     = term     || 'term1';
+    const paymentCategory = category || 'tuition';
 
     const receipt_number = genReceipt();
 
@@ -81,20 +92,21 @@ const recordPayment = async (req, res) => {
       `Payment recorded. Receipt: ${receipt_number}`, 201);
 
   } catch (err) {
-    console.error('recordPayment:', err.message);
-    return sendError(res, 'Server error: ' + err.message, 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
 // GET /api/finance/payments — List payments
 const getPayments = async (req, res) => {
   try {
-    const { student_id, term, page=1, limit=20 } = req.query;
+    const { student_id, term } = req.query;
+    const pg = parsePagination(req.query);
+    if (pg.error) return sendError(res, pg.error, 400);
+    const { page, limit, offset } = pg;
     const conditions=[]; const params=[]; let idx=1;
     if (student_id) { conditions.push(`p.student_id=$${idx++}`); params.push(student_id); }
     if (term)       { conditions.push(`p.term=$${idx++}`);        params.push(term); }
     const where = conditions.length ? 'WHERE '+conditions.join(' AND ') : '';
-    const offset = (parseInt(page)-1)*parseInt(limit);
 
     const { rows } = await db.query(
       `SELECT p.*,
@@ -122,8 +134,7 @@ const getPayments = async (req, res) => {
     }, `Found ${rows.length} payment(s).`);
 
   } catch (err) {
-    console.error('getPayments:', err.message);
-    return sendError(res, 'Server error: ' + err.message, 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -131,8 +142,8 @@ const getPayments = async (req, res) => {
 const getFinanceSummary = async (req, res) => {
   try {
     const currentYear = await getCurrentYear();
-    const yearFilter  = currentYear
-      ? `WHERE p.academic_year_id='${currentYear.id}'` : '';
+    const yearFilter  = currentYear ? 'WHERE p.academic_year_id = $1' : '';
+    const yearParams  = currentYear ? [currentYear.id] : [];
 
     const { rows: summary } = await db.query(
       `SELECT
@@ -142,13 +153,15 @@ const getFinanceSummary = async (req, res) => {
          ROUND(COALESCE(SUM(amount_paid),0)*100/
            NULLIF(COALESCE(SUM(amount_due),0),0),1) AS collection_rate,
          COUNT(DISTINCT student_id) AS paying_students
-       FROM payments p ${yearFilter}`
+       FROM payments p ${yearFilter}`,
+      yearParams
     );
 
     const { rows: byMethod } = await db.query(
       `SELECT payment_method, SUM(amount_paid) AS total, COUNT(*) AS count
        FROM payments p ${yearFilter}
-       GROUP BY payment_method ORDER BY total DESC`
+       GROUP BY payment_method ORDER BY total DESC`,
+      yearParams
     );
 
     const { rows: recent } = await db.query(
@@ -158,7 +171,8 @@ const getFinanceSummary = async (req, res) => {
        FROM payments p
        LEFT JOIN students s ON s.id=p.student_id
        ${yearFilter}
-       ORDER BY p.created_at DESC LIMIT 10`
+       ORDER BY p.created_at DESC LIMIT 10`,
+      yearParams
     );
 
     return sendSuccess(res, {
@@ -169,8 +183,7 @@ const getFinanceSummary = async (req, res) => {
     }, 'Finance summary retrieved.');
 
   } catch (err) {
-    console.error('getFinanceSummary:', err.message);
-    return sendError(res, 'Server error: ' + err.message, 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -201,8 +214,7 @@ const getStudentBalance = async (req, res) => {
     }, 'Student balance retrieved.');
 
   } catch (err) {
-    console.error('getStudentBalance:', err.message);
-    return sendError(res, 'Server error: ' + err.message, 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -222,7 +234,7 @@ const getUnpaidStudents = async (req, res) => {
     );
     return sendSuccess(res, rows, `${rows.length} student(s) with outstanding balance.`);
   } catch (err) {
-    return sendError(res, 'Server error: ' + err.message, 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 

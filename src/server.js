@@ -18,13 +18,20 @@ const academicYearRoutes = require('./routes/academicYear.routes');
 const examScheduleRoutes = require('./routes/examSchedule.routes');
 const analyticsRoutes    = require('./routes/analytics.routes');
 const documentRoutes     = require('./routes/document.routes');
+const { sendServerError } = require('./utils/errors');
 
 const app = express();
 app.use(helmet());
+// Allowed browser origins come from CORS_ORIGINS (comma-separated).
+// The 'null' origin (file://, sandboxed iframes) is never allowed.
+const DEFAULT_CORS_ORIGINS = 'http://localhost:5500,http://127.0.0.1:5500,http://localhost:5501,http://127.0.0.1:5501';
+const corsOrigins = (process.env.CORS_ORIGINS || DEFAULT_CORS_ORIGINS)
+  .split(',').map(o => o.trim()).filter(o => o && o !== 'null');
 app.use(cors({
-  origin: ['http://localhost:5500','http://127.0.0.1:5500',
-           'http://localhost:5501','http://127.0.0.1:5501','null'],
+  origin: corsOrigins,
   credentials: true,
+  // Lets the browser read the download filename (RFC 5987, e.g. Amharic names)
+  exposedHeaders: ['Content-Disposition'],
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -55,10 +62,7 @@ app.use('/api/documents',      documentRoutes);
 app.use((req, res) => res.status(404).json({
   success:false, message:`Route not found: ${req.method} ${req.originalUrl}`
 }));
-app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(500).json({ success:false, message:'Internal server error.' });
-});
+app.use((err, req, res, next) => sendServerError(res, err, 'Internal server error.'));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

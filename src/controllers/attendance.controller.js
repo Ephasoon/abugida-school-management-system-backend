@@ -11,6 +11,8 @@
 const db                 = require('../config/db');
 const { sendSuccess,
         sendError }      = require('../utils/response');
+const { sendServerError } = require('../utils/errors');
+const { parsePagination } = require('../utils/pagination');
 
 
 // ── POST /api/attendance ─────────────────────────────────────
@@ -107,8 +109,7 @@ const markAttendance = async (req, res) => {
 
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error('markAttendance error:', err);
-    return sendError(res, 'Server error while marking attendance.', 500);
+    return sendServerError(res, err, 'Server error while marking attendance.');
   } finally {
     client.release();
   }
@@ -169,8 +170,7 @@ const getClassAttendance = async (req, res) => {
     }, `Attendance data for ${date}.`);
 
   } catch (err) {
-    console.error('getClassAttendance error:', err);
-    return sendError(res, 'Server error while fetching attendance.', 500);
+    return sendServerError(res, err, 'Server error while fetching attendance.');
   }
 };
 
@@ -205,8 +205,7 @@ const updateAttendance = async (req, res) => {
     return sendSuccess(res, rows[0], 'Attendance updated successfully.');
 
   } catch (err) {
-    console.error('updateAttendance error:', err);
-    return sendError(res, 'Server error while updating attendance.', 500);
+    return sendServerError(res, err, 'Server error while updating attendance.');
   }
 };
 
@@ -216,7 +215,9 @@ const updateAttendance = async (req, res) => {
 const getStudentAttendance = async (req, res) => {
   try {
     const { studentId }              = req.params;
-    const { month, year, limit = 30 } = req.query;
+    const { month, year } = req.query;
+    const pg = parsePagination(req.query);
+    if (pg.error) return sendError(res, pg.error, 400);
 
     // Build date filter
     let dateFilter = '';
@@ -240,8 +241,8 @@ const getStudentAttendance = async (req, res) => {
        WHERE a.student_id = $1
          ${dateFilter}
        ORDER BY a.date DESC
-       LIMIT ${parseInt(limit)}`,
-      params
+       LIMIT $${params.length + 1}`,
+      [...params, pg.limit]
     );
 
     // Calculate overall stats
@@ -256,8 +257,8 @@ const getStudentAttendance = async (req, res) => {
            COUNT(*) FILTER (WHERE status = 'present') * 100.0
            / NULLIF(COUNT(*), 0), 1
          )                                               AS attendance_rate
-       FROM attendance
-       WHERE student_id = $1 ${dateFilter}`,
+       FROM attendance a
+       WHERE a.student_id = $1 ${dateFilter}`,
       params
     );
 
@@ -268,8 +269,7 @@ const getStudentAttendance = async (req, res) => {
     }, 'Student attendance retrieved.');
 
   } catch (err) {
-    console.error('getStudentAttendance error:', err);
-    return sendError(res, 'Server error while fetching student attendance.', 500);
+    return sendServerError(res, err, 'Server error while fetching student attendance.');
   }
 };
 
@@ -330,8 +330,7 @@ const getClassReport = async (req, res) => {
     }, `Monthly attendance report for ${reportMonth}/${reportYear}.`);
 
   } catch (err) {
-    console.error('getClassReport error:', err);
-    return sendError(res, 'Server error while generating report.', 500);
+    return sendServerError(res, err, 'Server error while generating report.');
   }
 };
 

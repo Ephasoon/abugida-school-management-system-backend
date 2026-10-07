@@ -12,7 +12,12 @@
 //   2. Refresh Token — long-lived (7 days). Used ONLY to get a new access token.
 // ============================================================
 
-const jwt = require('jsonwebtoken');
+const jwt    = require('jsonwebtoken');
+const crypto = require('crypto');
+
+// Fixed by policy (Phase 0): access tokens live 15 minutes.
+// JWT_EXPIRES_IN in .env is intentionally no longer read.
+const ACCESS_TOKEN_TTL = '15m';
 
 /**
  * Generate a short-lived access token.
@@ -26,17 +31,18 @@ const generateAccessToken = (user) => {
       role:  user.role,
     },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '15m' }
+    { expiresIn: ACCESS_TOKEN_TTL }
   );
 };
 
 /**
  * Generate a long-lived refresh token.
- * Contains only the user's id (minimal data for security).
+ * Contains the user's id and a random jti; the jti's hash is stored in
+ * refresh_tokens so the token can be revoked (see utils/sessions.js).
  */
-const generateRefreshToken = (user) => {
+const generateRefreshToken = (user, jti = crypto.randomUUID()) => {
   return jwt.sign(
-    { id: user.id },
+    { id: user.id, jti },
     process.env.JWT_REFRESH_SECRET,
     { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' }
   );

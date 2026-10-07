@@ -7,6 +7,7 @@
 //   PUT  /api/teachers/:id          → update teacher
 //   POST /api/teachers/:id/subjects → assign subjects
 //   POST /api/teachers/:id/classes  → assign to class+subject
+//   DELETE /api/teachers/:id/classes/:classId/:subjectId → remove that assignment
 //   GET  /api/teachers/subjects     → list all subjects
 // ============================================================
 
@@ -14,13 +15,16 @@ const db                 = require('../config/db');
 const bcrypt             = require('bcryptjs');
 const { sendSuccess,
         sendError }      = require('../utils/response');
+const { sendServerError } = require('../utils/errors');
+const { generateTemporaryPassword } = require('../utils/password');
+const { setUserActive }  = require('../utils/sessions');
 
 
 // ── Helper: Generate Teacher Number ──────────────────────────
+// TCH-<NNN> from teacher_number_seq (migration 014): unique even under concurrency
 const generateTeacherNumber = async () => {
-  const { rows } = await db.query('SELECT COUNT(*) FROM teachers');
-  const count    = parseInt(rows[0].count) + 1;
-  return `TCH-${String(count).padStart(3, '0')}`;
+  const { rows } = await db.query("SELECT nextval('teacher_number_seq') AS n");
+  return `TCH-${String(rows[0].n).padStart(3, '0')}`;
 };
 
 
@@ -31,7 +35,7 @@ const createTeacher = async (req, res) => {
     const {
       first_name, last_name, email, phone,
       gender, specialization, qualification,
-      hire_date, password = 'Teacher@1234',
+      hire_date,
     } = req.body;
 
     if (!first_name || !last_name || !email) {
@@ -48,11 +52,13 @@ const createTeacher = async (req, res) => {
 
     await client.query('BEGIN');
 
-    // 1. Create login account
-    const hash = await bcrypt.hash(password, 12);
+    // 1. Create login account with a one-time temporary password.
+    //    must_change_password blocks every route until the teacher sets their own.
+    const temporaryPassword = generateTemporaryPassword();
+    const hash = await bcrypt.hash(temporaryPassword, 12);
     const { rows: userRows } = await client.query(
-      `INSERT INTO users (email, password_hash, role)
-       VALUES ($1, $2, 'teacher') RETURNING id`,
+      `INSERT INTO users (email, password_hash, role, must_change_password)
+       VALUES ($1, $2, 'teacher', TRUE) RETURNING id`,
       [email.toLowerCase().trim(), hash]
     );
 
@@ -75,15 +81,16 @@ const createTeacher = async (req, res) => {
 
     await client.query('COMMIT');
 
+    // The temporary password is returned exactly once, in its own field.
+    // It is never stored in plain text or included in the message.
     return sendSuccess(res, {
       ...rows[0], email,
-      login_password: password,
-    }, `Teacher ${teacher_number} added. Login: ${email} / ${password}`, 201);
+      temporary_password: temporaryPassword,
+    }, `Teacher ${teacher_number} added. Share the temporary password privately; it must be changed at first login.`, 201);
 
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error('createTeacher error:', err);
-    return sendError(res, 'Server error while adding teacher.', 500);
+    return sendServerError(res, err, 'Server error while adding teacher.');
   } finally {
     client.release();
   }
@@ -124,8 +131,7 @@ const getTeachers = async (req, res) => {
     return sendSuccess(res, rows, `Found ${rows.length} teacher(s).`);
 
   } catch (err) {
-    console.error('getTeachers error:', err);
-    return sendError(res, 'Server error while fetching teachers.', 500);
+    return sendServerError(res, err, 'Server error while fetching teachers.');
   }
 };
 
@@ -151,7 +157,7 @@ const getTeacherById = async (req, res) => {
     );
 
     const { rows: classes } = await db.query(
-      `SELECT c.id, c.name, c.grade_level, c.section, s.name AS subject_name
+      `SELECT c.id, c.name, c.grade_level, c.section, tc.subject_id, s.name AS subject_name
        FROM teacher_classes tc
        JOIN classes  c ON c.id = tc.class_id
        JOIN subjects s ON s.id = tc.subject_id
@@ -164,8 +170,7 @@ const getTeacherById = async (req, res) => {
     return sendSuccess(res, teacher, 'Teacher profile retrieved.');
 
   } catch (err) {
-    console.error('getTeacherById error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -193,11 +198,15 @@ const updateTeacher = async (req, res) => {
        specialization, qualification, hire_date, is_active, id]
     );
     if (!rows[0]) return sendError(res, 'Teacher not found.', 404);
+
+    // Deactivating a teacher also disables their login and revokes all sessions
+    if (is_active !== undefined && is_active !== null) {
+      await setUserActive(rows[0].user_id, rows[0].is_active);
+    }
     return sendSuccess(res, rows[0], 'Teacher updated.');
 
   } catch (err) {
-    console.error('updateTeacher error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -222,8 +231,7 @@ const assignSubjects = async (req, res) => {
     return sendSuccess(res, null, `${subject_ids.length} subject(s) assigned.`);
 
   } catch (err) {
-    console.error('assignSubjects error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -246,8 +254,28 @@ const assignClass = async (req, res) => {
     return sendSuccess(res, null, 'Teacher assigned to class.');
 
   } catch (err) {
-    console.error('assignClass error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
+  }
+};
+
+
+// ── DELETE /api/teachers/:id/classes/:classId/:subjectId ─────
+const removeClassAssignment = async (req, res) => {
+  try {
+    const { id, classId, subjectId } = req.params;
+
+    // ::text comparison: a malformed id simply matches nothing (404, not 500)
+    const { rows } = await db.query(
+      `DELETE FROM teacher_classes
+       WHERE teacher_id::text = $1 AND class_id::text = $2 AND subject_id::text = $3
+       RETURNING id`,
+      [id, classId, subjectId]
+    );
+    if (!rows[0]) return sendError(res, 'Assignment not found.', 404);
+    return sendSuccess(res, null, 'Teacher removed from class.');
+
+  } catch (err) {
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -260,12 +288,12 @@ const getAllSubjects = async (req, res) => {
     );
     return sendSuccess(res, rows, `${rows.length} subject(s) found.`);
   } catch (err) {
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
 
 module.exports = {
   createTeacher, getTeachers, getTeacherById,
-  updateTeacher, assignSubjects, assignClass, getAllSubjects,
+  updateTeacher, assignSubjects, assignClass, removeClassAssignment, getAllSubjects,
 };

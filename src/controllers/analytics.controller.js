@@ -1,6 +1,7 @@
 // src/controllers/analytics.controller.js
 const db            = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
+const { sendServerError } = require('../utils/errors');
 
 // GET /api/analytics/overview
 const getOverview = async (req, res) => {
@@ -57,8 +58,7 @@ const getOverview = async (req, res) => {
       upcoming_exams: upcoming[0].count, classes: cls[0],
     }, 'Overview retrieved.');
   } catch (err) {
-    console.error('getOverview:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -87,8 +87,7 @@ const getStudentAnalytics = async (req, res) => {
     return sendSuccess(res, { by_grade: byGrade, trend, by_status: byStatus },
       'Student analytics retrieved.');
   } catch (err) {
-    console.error('getStudentAnalytics:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -129,8 +128,7 @@ const getAttendanceAnalytics = async (req, res) => {
     return sendSuccess(res, { daily_trend: daily, by_grade: byGrade, most_absent: mostAbsent },
       'Attendance analytics retrieved.');
   } catch (err) {
-    console.error('getAttendanceAnalytics:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -163,8 +161,7 @@ const getGradeAnalytics = async (req, res) => {
     return sendSuccess(res, { by_subject: bySubject, grade_dist: gradeDist, top_students: topStudents },
       'Grade analytics retrieved.');
   } catch (err) {
-    console.error('getGradeAnalytics:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -190,8 +187,7 @@ const getFinanceAnalytics = async (req, res) => {
     return sendSuccess(res, { monthly_trend: monthly, by_method: byMethod, by_category: byCategory },
       'Finance analytics retrieved.');
   } catch (err) {
-    console.error('getFinanceAnalytics:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 

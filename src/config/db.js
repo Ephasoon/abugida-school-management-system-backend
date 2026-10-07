@@ -2,8 +2,13 @@
 // This file creates our connection to the PostgreSQL database.
 // We use the 'pg' library (already installed) which lets Node.js talk to PostgreSQL.
 
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
 require('dotenv').config();
+
+// DATE columns (OID 1082) are returned as plain 'YYYY-MM-DD' strings.
+// By default pg turns them into JS Dates at local midnight, which shift
+// to the previous day once serialized as UTC (e.g. in Ethiopia, UTC+3).
+types.setTypeParser(types.builtins.DATE, (value) => value);
 
 // A "Pool" is a group of reusable database connections.
 // Instead of opening/closing a connection on every request (slow),

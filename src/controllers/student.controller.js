@@ -12,18 +12,17 @@
 const db                     = require('../config/db');
 const { sendSuccess,
         sendError }          = require('../utils/response');
+const { sendServerError } = require('../utils/errors');
+const { parsePagination } = require('../utils/pagination');
+const { setUserActive }   = require('../utils/sessions');
 
 // ── Helper: Generate Student Number ─────────────────────────
-// Format: ASMS-2024-001, ASMS-2024-002, etc.
+// Format: ASMS-<year>-<NNN>. NNN comes from student_number_seq (migration 014),
+// so concurrent registrations never get the same number. NNN does not reset yearly.
 const generateStudentNumber = async () => {
   const year = new Date().getFullYear();
-  const { rows } = await db.query(
-    `SELECT COUNT(*) FROM students
-     WHERE student_number LIKE $1`,
-    [`ASMS-${year}-%`]
-  );
-  const count  = parseInt(rows[0].count) + 1;
-  const padded = String(count).padStart(3, '0');
+  const { rows } = await db.query("SELECT nextval('student_number_seq') AS n");
+  const padded = String(rows[0].n).padStart(3, '0');
   return `ASMS-${year}-${padded}`;
 };
 
@@ -105,8 +104,7 @@ const createStudent = async (req, res) => {
     return sendSuccess(res, rows[0], `Student ${student_number} registered successfully.`, 201);
 
   } catch (err) {
-    console.error('createStudent error:', err);
-    return sendError(res, 'Server error while registering student.', 500);
+    return sendServerError(res, err, 'Server error while registering student.');
   }
 };
 
@@ -120,11 +118,11 @@ const getStudents = async (req, res) => {
       class_id = '',
       status   = 'active',
       gender   = '',
-      page     = 1,
-      limit    = 20,
     } = req.query;
 
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const pg = parsePagination(req.query);
+    if (pg.error) return sendError(res, pg.error, 400);
+    const { page, limit, offset } = pg;
 
     // Build dynamic WHERE clause
     const conditions = [];
@@ -185,6 +183,7 @@ const getStudents = async (req, res) => {
          s.enrollment_date,
          s.photo_url,
          -- Class info joined in
+         s.class_id,
          c.name        AS class_name,
          c.grade_level AS grade_level,
          c.section     AS section
@@ -207,8 +206,7 @@ const getStudents = async (req, res) => {
     }, `Found ${total} student(s).`);
 
   } catch (err) {
-    console.error('getStudents error:', err);
-    return sendError(res, 'Server error while fetching students.', 500);
+    return sendServerError(res, err, 'Server error while fetching students.');
   }
 };
 
@@ -259,8 +257,7 @@ const getStudentById = async (req, res) => {
     return sendSuccess(res, student, 'Student profile retrieved.');
 
   } catch (err) {
-    console.error('getStudentById error:', err);
-    return sendError(res, 'Server error while fetching student.', 500);
+    return sendServerError(res, err, 'Server error while fetching student.');
   }
 };
 
@@ -313,6 +310,11 @@ const updateStudent = async (req, res) => {
       ]
     );
 
+    // Any status other than 'active' disables the student's login (if any)
+    if (status) {
+      await setUserActive(rows[0].user_id, rows[0].status === 'active');
+    }
+
     // Log change
     await db.query(
       `INSERT INTO audit_logs (user_id, action, target_type, target_id, old_data, new_data)
@@ -327,8 +329,7 @@ const updateStudent = async (req, res) => {
     return sendSuccess(res, rows[0], 'Student updated successfully.');
 
   } catch (err) {
-    console.error('updateStudent error:', err);
-    return sendError(res, 'Server error while updating student.', 500);
+    return sendServerError(res, err, 'Server error while updating student.');
   }
 };
 
@@ -343,13 +344,15 @@ const archiveStudent = async (req, res) => {
       `UPDATE students
        SET status = 'withdrawn', updated_at = NOW()
        WHERE id = $1
-       RETURNING student_number, first_name, last_name`,
+       RETURNING student_number, first_name, last_name, user_id`,
       [id]
     );
 
     if (!rows[0]) {
       return sendError(res, 'Student not found.', 404);
     }
+
+    await setUserActive(rows[0].user_id, false);
 
     await db.query(
       `INSERT INTO audit_logs (user_id, action, target_type, target_id)
@@ -363,8 +366,7 @@ const archiveStudent = async (req, res) => {
     );
 
   } catch (err) {
-    console.error('archiveStudent error:', err);
-    return sendError(res, 'Server error while archiving student.', 500);
+    return sendServerError(res, err, 'Server error while archiving student.');
   }
 };
 
@@ -428,8 +430,7 @@ const getStudentSummary = async (req, res) => {
     }, 'Student summary retrieved.');
 
   } catch (err) {
-    console.error('getStudentSummary error:', err);
-    return sendError(res, 'Server error while fetching student summary.', 500);
+    return sendServerError(res, err, 'Server error while fetching student summary.');
   }
 };
 

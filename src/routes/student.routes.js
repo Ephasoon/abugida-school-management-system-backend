@@ -20,6 +20,7 @@ const {
 }                = require('../controllers/student.controller');
 const { authenticate }           = require('../middleware/auth.middleware');
 const { adminOnly, teacherOrAdmin, authorize } = require('../middleware/role.middleware');
+const { requireStudentAccess } = require('../middleware/studentAccess.middleware');
 
 // All routes below require a valid JWT token
 router.use(authenticate);
@@ -32,6 +33,6 @@ router.post('/'         , adminOnly,      createStudent); // POST /api/students
 router.get ('/:id'         , teacherOrAdmin,                    getStudentById);   // GET    /api/students/:id
 router.put ('/:id'         , adminOnly,                         updateStudent);    // PUT    /api/students/:id
 router.delete('/:id'       , adminOnly,                         archiveStudent);   // DELETE /api/students/:id
-router.get ('/:id/summary' , authorize('admin','teacher','student','parent'), getStudentSummary); // GET /api/students/:id/summary
+router.get ('/:id/summary' , authorize('admin','teacher','student','parent'), requireStudentAccess('id'), getStudentSummary); // GET /api/students/:id/summary
 
 module.exports = router;

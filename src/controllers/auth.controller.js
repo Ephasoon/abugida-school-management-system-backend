@@ -12,10 +12,18 @@
 
 const bcrypt                                   = require('bcryptjs');
 const db                                       = require('../config/db');
-const { generateAccessToken,
-        generateRefreshToken,
-        verifyRefreshToken }                   = require('../utils/jwt');
+const { generateAccessToken }                  = require('../utils/jwt');
+const { createSession, findActiveSession,
+        revokeSession, revokeAllSessions }     = require('../utils/sessions');
 const { sendSuccess, sendError }               = require('../utils/response');
+const { sendServerError } = require('../utils/errors');
+
+const REFRESH_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure:   process.env.NODE_ENV === 'production', // HTTPS only in production
+  sameSite: 'strict',
+};
+const REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
 
 // ── LOGIN ────────────────────────────────────────────────────
 const login = async (req, res) => {
@@ -52,9 +60,9 @@ const login = async (req, res) => {
       return sendError(res, 'Invalid email or password.', 401);
     }
 
-    // 5. Generate both tokens
+    // 5. Generate both tokens (the refresh token is recorded as a session)
     const accessToken  = generateAccessToken(user);
-    const refreshToken = generateRefreshToken(user);
+    const refreshToken = await createSession(user);
 
     // 6. Update last_login timestamp
     await db.query(
@@ -65,10 +73,8 @@ const login = async (req, res) => {
     // 7. Store refresh token in a secure HTTP-only cookie.
     //    HTTP-only means JavaScript cannot read it → more secure.
     res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure:   process.env.NODE_ENV === 'production', // HTTPS only in production
-      sameSite: 'strict',
-      maxAge:   7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
+      ...REFRESH_COOKIE_OPTIONS,
+      maxAge: REFRESH_COOKIE_MAX_AGE,
     });
 
     // 8. Return the access token and user profile
@@ -78,12 +84,12 @@ const login = async (req, res) => {
         id:    user.id,
         email: user.email,
         role:  user.role,
+        must_change_password: user.must_change_password,
       },
     }, 'Login successful.');
 
   } catch (err) {
-    console.error('Login error:', err);
-    return sendError(res, 'Server error during login.', 500);
+    return sendServerError(res, err, 'Server error during login.');
   }
 };
 
@@ -98,13 +104,12 @@ const refresh = async (req, res) => {
       return sendError(res, 'No refresh token. Please log in again.', 401);
     }
 
-    // Verify the refresh token
-    let decoded;
-    try {
-      decoded = verifyRefreshToken(token);
-    } catch {
+    // Verify the refresh token AND that its session has not been revoked
+    const active = await findActiveSession(token);
+    if (!active) {
       return sendError(res, 'Refresh token expired or invalid. Please log in again.', 401);
     }
+    const { decoded } = active;
 
     // Get fresh user data from DB (in case role changed since last token)
     const { rows } = await db.query(
@@ -124,21 +129,22 @@ const refresh = async (req, res) => {
     return sendSuccess(res, { accessToken }, 'Token refreshed.');
 
   } catch (err) {
-    console.error('Refresh error:', err);
-    return sendError(res, 'Server error during token refresh.', 500);
+    return sendServerError(res, err, 'Server error during token refresh.');
   }
 };
 
 
 // ── LOGOUT ───────────────────────────────────────────────────
-const logout = (req, res) => {
-  // Clear the refresh token cookie
-  res.clearCookie('refreshToken', {
-    httpOnly: true,
-    secure:   process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-  });
-  return sendSuccess(res, null, 'Logged out successfully.');
+const logout = async (req, res) => {
+  try {
+    // Revoke this session server-side, then clear the cookie
+    const token = req.cookies?.refreshToken;
+    if (token) await revokeSession(token);
+    res.clearCookie('refreshToken', REFRESH_COOKIE_OPTIONS);
+    return sendSuccess(res, null, 'Logged out successfully.');
+  } catch (err) {
+    return sendServerError(res, err, 'Server error during logout.');
+  }
 };
 
 
@@ -172,8 +178,7 @@ const getMe = async (req, res) => {
     return sendSuccess(res, rows[0], 'User profile retrieved.');
 
   } catch (err) {
-    console.error('GetMe error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -207,16 +212,30 @@ const changePassword = async (req, res) => {
     // Hash the new password
     const newHash = await bcrypt.hash(newPassword, 12);
 
+    if (await bcrypt.compare(newPassword, user.password_hash)) {
+      return sendError(res, 'New password must be different from the current password.', 400);
+    }
+
     await db.query(
-      'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2',
+      `UPDATE users
+       SET password_hash = $1, must_change_password = FALSE, updated_at = NOW()
+       WHERE id = $2`,
       [newHash, req.user.id]
     );
 
-    return sendSuccess(res, null, 'Password changed successfully.');
+    // Sign out every existing session, then start a fresh one for this device
+    await revokeAllSessions(req.user.id);
+    const refreshToken = await createSession(user);
+    res.cookie('refreshToken', refreshToken, {
+      ...REFRESH_COOKIE_OPTIONS,
+      maxAge: REFRESH_COOKIE_MAX_AGE,
+    });
+
+    return sendSuccess(res, { accessToken: generateAccessToken(user) },
+      'Password changed successfully. Other sessions have been signed out.');
 
   } catch (err) {
-    console.error('ChangePassword error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 

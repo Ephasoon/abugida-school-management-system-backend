@@ -9,14 +9,15 @@ const {
   getUnpaidStudents,
 } = require('../controllers/finance.controller');
 const { authenticate }              = require('../middleware/auth.middleware');
-const { adminOnly, teacherOrAdmin } = require('../middleware/role.middleware');
+const { adminOnly }                 = require('../middleware/role.middleware');
 
 router.use(authenticate);
+router.use(adminOnly); // Finance is admin-only (teachers have no access)
 
-router.post('/payments',              adminOnly,      recordPayment);
-router.get ('/payments',              teacherOrAdmin, getPayments);
-router.get ('/summary',               teacherOrAdmin, getFinanceSummary);
-router.get ('/student/:studentId',    teacherOrAdmin, getStudentBalance);
-router.get ('/unpaid',                teacherOrAdmin, getUnpaidStudents);
+router.post('/payments',              recordPayment);
+router.get ('/payments',              getPayments);
+router.get ('/summary',               getFinanceSummary);
+router.get ('/student/:studentId',    getStudentBalance);
+router.get ('/unpaid',                getUnpaidStudents);
 
 module.exports = router;

@@ -14,15 +14,17 @@ const {
   getMe,
   changePassword,
 }                = require('../controllers/auth.controller');
-const { authenticate } = require('../middleware/auth.middleware');
+const { authenticate,
+        authenticateAllowPasswordChange } = require('../middleware/auth.middleware');
+const { loginLimiter } = require('../middleware/rateLimit.middleware');
 
 // Public routes — no token needed
-router.post('/login',   login);
+router.post('/login',   loginLimiter, login);
 router.post('/refresh', refresh);
 router.post('/logout',  logout);
 
 // Protected routes — must be logged in
 router.get ('/me',              authenticate, getMe);
-router.post('/change-password', authenticate, changePassword);
+router.post('/change-password', authenticateAllowPasswordChange, changePassword);
 
 module.exports = router;
