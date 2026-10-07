@@ -42,6 +42,17 @@ This is the source of truth for who may do what. Every API route must match it.
 | Principal accounts | Admin creates them (email + display name, temporary password, forced change). |
 | Parents per student | No limit. At most one parent per student can be the primary contact (already enforced by the database). |
 
+## Phase 1 follow-up decisions (2026-10-08)
+
+| # | Topic | Decision | Implemented |
+|---|---|---|---|
+| 1 | Existing parent without a login | Admin can create one: `POST /api/accounts/parents/:parentId/login` | ✅ |
+| 2 | Deactivating parents | Admin can deactivate and reactivate parent accounts, with the same immediate cut-off as teachers and principals: `PUT /api/accounts/parents/:parentId/status` | ✅ |
+| 3 | Internal staff notes | Hidden from students and parents (`notes` is removed from their student records) | ✅ (no change needed) |
+| 4 | Finance "Outstanding" | Sum of per-student debts (`total_outstanding`), plus `total_credit` (overpayments) and `net_balance` (due − paid) | ✅ |
+| 5 | Graduated students | Their login is disabled; admins issue transcripts and report cards on request | ✅ (no change needed) |
+| 6 | Exam dates | `exam_date` is always required (for assignments it is the due date). `POST /api/exam-schedule` is the exam-creation endpoint; `POST /api/grades/exams` is deprecated | ✅ (no change needed) |
+
 ---
 
 ## Audit of the current API (before Phase 1)

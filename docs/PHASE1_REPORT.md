@@ -16,6 +16,9 @@ Branch `phase-1-roles` in `asms-backend` (not pushed). Every change was verified
 | `d3136cf` | `PERMISSIONS.md`: status after Phase 1 |
 | `1aade6f` | **Addition 1.** One exam-creation rule for both exam endpoints (shared `services/exam.service.js`) |
 | `094289f` | **Addition 2.** Admin can deactivate and reactivate a principal |
+| `f07df7e` | **Decision 1.** Login for an existing parent |
+| `106caaa` | **Decision 2.** Deactivate and reactivate parent accounts |
+| `024f16b` | **Decision 4.** Outstanding = sum of per-student debts; `total_credit`, `net_balance` |
 
 ---
 
@@ -73,7 +76,7 @@ Neither migration changes existing rows.
 - **Audit:** all account actions are written to `audit_logs` (`account.*`).
 
 ### Group D — Fixes
-- **Finance "Outstanding" showed 0.** The API returned `outstanding`, but the dashboards read `total_outstanding`. Both names are now returned (finance summary and analytics overview). Verified with your numbers: 23,600 − 22,600 = **1,000**, and the current `finance.html` shows it with no frontend change.
+- **Finance "Outstanding" showed 0.** The API returned `outstanding`, but the dashboards read `total_outstanding`. Both names are now returned (finance summary and analytics overview). Verified with your numbers: 23,600 − 22,600 = **1,000**, and the current `finance.html` shows it with no frontend change. Decision 4 later refined the definition (section 6).
 - **Zero-amount payments were rejected.** `recordPayment` refused amounts of 0, so a fee charged but not yet paid couldn't be recorded. Amounts must now be numbers ≥ 0.
 - **`GET /api/parent/fees`:** each child's due / paid / balance / status (`paid`, `partial`, `unpaid`, `no_records`) plus family totals.
 - **`GET /api/dashboard/teacher`:**
@@ -214,7 +217,7 @@ Roles: **A** admin · **P** principal · **T** teacher (own classes) · **Pa** p
 ### Finance
 | Method & path | Who | Notes |
 |---|---|---|
-| `GET /finance/summary` | A, P | `total_expected`, `total_collected`, `total_outstanding` |
+| `GET /finance/summary` | A, P | `total_expected`, `total_collected`, `total_outstanding` (sum of per-student debts), `total_credit` (overpayments), `net_balance` (due − paid); `outstanding` = `total_outstanding` |
 | `GET /finance/payments`, `/unpaid`, `/student/:id` | A, P | |
 | `POST /finance/payments` | A | categories: tuition, registration, material, exam, library, sport, uniform, transport, other; terms: term1–3 |
 | `GET /parent/fees` | Pa | all children + family total |
@@ -235,6 +238,8 @@ Roles: **A** admin · **P** principal · **T** teacher (own classes) · **Pa** p
 | `POST /accounts/students/:studentId/login` | `{ email }` → `temporary_password` |
 | `GET /accounts/parents?search=` | with `children[]` |
 | `POST /accounts/parents` | `{ full_name, phone, email, phone_secondary?, occupation? }` → `temporary_password` |
+| `POST /accounts/parents/:parentId/login` | `{ email }`: login for an existing parent without one → `temporary_password` |
+| `PUT /accounts/parents/:parentId/status` | `{ is_active }`: deactivate (immediate cut-off, sessions revoked) / reactivate |
 | `POST /accounts/parents/:parentId/children` | `{ student_id, relationship: father|mother|guardian|other, is_primary? }` |
 | `DELETE /accounts/parents/:parentId/children/:studentId` | |
 | `POST /accounts/principals` | `{ email, display_name }` → `temporary_password` |
@@ -249,20 +254,23 @@ Roles: **A** admin · **P** principal · **T** teacher (own classes) · **Pa** p
 | Group B role × endpoint matrix (6 users: admin, principal, teacher with/without assignments, student, parent) plus list-scoping checks | **220 pass** |
 | Addition 1: both exam endpoints, same cases (8 roles/assignments × 6 invalid inputs each, storage, conflicts, deprecation headers, no active year) | **39 pass** (run twice) |
 | Addition 2: principal deactivate/reactivate (permissions, immediate cut-off, session revocation, audit) | **16 pass** |
+| Decisions 1, 2, 4: existing-parent login, parent deactivate/reactivate, per-student outstanding with overpayment | **35 pass**; accounts, principal, Group D and role matrix re-run green |
 | Group C accounts (permissions, student/parent/principal creation, links, reset, audit) | **46 pass** |
 | Group D (finance 23,600/22,600 → 1,000 via API and in `finance.html`, parent family fees, teacher dashboard) | **30 pass** |
 | Phase 0 regression: curl suites (G1, G2 ×2, G3, assignments) and browser suites (G5 55, parent portal, follow-ups 28) | all pass |
 
 ---
 
-## 6. Needs your decision
+## 6. Decisions (all answered)
 
-1. **Existing parents without a login.** `POST /accounts/parents` creates new parents. There is no endpoint to add a login to a parent row that already exists without one. Add `POST /accounts/parents/:parentId/login`?
-2. **Deactivating parents.** Principals can now be deactivated (addition 2), as can teachers and students. Parent accounts still can't, only reset. Add the same endpoint for parents?
-3. **Staff notes hidden from students and parents.** I removed `notes` from student records for those two roles, as a conservative default. Confirm, or say whether they should see them.
-4. **"Outstanding" is a net figure** (all due − all paid). An overpaying student hides other students' debt. Alternatives: the sum of positive balances only (matches `/finance/unpaid`), or show both.
-5. **Graduated students lose their login** (Phase 0 rule, still open).
-6. **Undated exams after `/grades/exams` is removed.** Should `POST /exam-schedule` accept an exam without a date (assignments, projects), or must every assessment have a date?
+| # | Topic | Options | Decision | Status |
+|---|---|---|---|---|
+| 1 | Existing parent without a login | A: add an endpoint · B: delete and recreate the parent | **A** | ✅ `POST /accounts/parents/:parentId/login` (`f07df7e`) |
+| 2 | Deactivating parents | Add a status endpoint, or reset only | **Yes, admins can deactivate and reactivate** | ✅ `PUT /accounts/parents/:parentId/status` (`106caaa`), same cut-off as teachers/principals |
+| 3 | Staff notes and students/parents | A: hidden · B: shown · C: split internal/shareable | **A** | ✅ Already implemented in Group B; no change |
+| 4 | What "Outstanding" means | A: net · B: positive balances only · C: return both | **C** | ✅ `total_outstanding` = sum of per-student debts, plus `total_credit` and `net_balance` (`024f16b`) |
+| 5 | Graduated students' login | A: disabled · B: read-only access · C: grace period | **A** | ✅ Phase 0 behaviour kept; no change |
+| 6 | Undated exams | Optional date on `/exam-schedule`, or always required | **Always required** (assignments use the due date) | ✅ No change: `/exam-schedule` already requires it; `/grades/exams` stays deprecated and can be removed with the old frontend |
 
 ## 7. Notes for the current HTML frontend (no changes made)
 
@@ -271,7 +279,7 @@ Roles: **A** admin · **P** principal · **T** teacher (own classes) · **Pa** p
 
 ## 8. Go-live steps for Phase 1
 
-1. Merge `phase-1-roles`, then `npm run migrate` (applies 016–017).
+1. Merge `phase-1-roles`, then `npm run migrate` (applies 016–017). Decisions 1, 2 and 4 need no migrations.
 2. Create principal account(s) via `POST /accounts/principals`.
 3. Create student and parent logins and parent ↔ student links via `/accounts`.
 4. Make sure every teacher has class assignments (`teacher_classes`), as in Phase 0.
