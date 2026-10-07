@@ -1,0 +1,8 @@
+# Store and check out text files with LF on every OS (overrides core.autocrlf).
+* text=auto eol=lf
+
+# Binary files: never touch line endings.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.pdf  binary
