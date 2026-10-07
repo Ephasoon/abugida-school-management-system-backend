@@ -15,25 +15,25 @@ const {
   getClassReport,
 }              = require('../controllers/attendance.controller');
 const { authenticate }                   = require('../middleware/auth.middleware');
-const { adminOnly, teacherOrAdmin, authorize } = require('../middleware/role.middleware');
-const { requireStudentAccess } = require('../middleware/studentAccess.middleware');
+const { adminOnly, teacherOrAdmin, allStaff, allAuthenticated } = require('../middleware/role.middleware');
+const { requireStudentAccess, requireClassAccess } = require('../middleware/studentAccess.middleware');
 
 router.use(authenticate);
 
 // Mark attendance for a class (teachers + admins)
-router.post('/',                        teacherOrAdmin,  markAttendance);
+router.post('/',                        teacherOrAdmin, requireClassAccess('class_id', { from: 'body' }), markAttendance);
 
 // Correct a single record (admin only)
 router.put('/:id',                      adminOnly,       updateAttendance);
 
 // Student's own attendance history (all roles)
-router.get('/student/:studentId',       authorize('admin','teacher','student','parent'), requireStudentAccess('studentId'), getStudentAttendance);
+router.get('/student/:studentId',       allAuthenticated, requireStudentAccess('studentId'), getStudentAttendance);
 
 // Monthly class report (teachers + admins)
-router.get('/report/:classId',          teacherOrAdmin,  getClassReport);
+router.get('/report/:classId',          allStaff, requireClassAccess('classId'), getClassReport);
 
 // Registered last: this pattern would otherwise swallow /student/:id and /report/:id
 // Get attendance for a class on a date (teachers + admins)
-router.get('/:classId/:date',           teacherOrAdmin,  getClassAttendance);
+router.get('/:classId/:date',           allStaff, requireClassAccess('classId'), getClassAttendance);
 
 module.exports = router;

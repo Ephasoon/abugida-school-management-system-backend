@@ -3,19 +3,20 @@ const path = require('path');
 const fs = require('fs');
 const { sendSuccess, sendError } = require('../utils/response');
 const { sendServerError } = require('../utils/errors');
+const { isSchoolWide }    = require('../utils/scope');
 const { parsePagination } = require('../utils/pagination');
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'documents');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-// ── Private documents: visible only to admins and the uploader ──
+// ── Private documents: visible to admins, the principal and the uploader ──
 // is_private is nullable in existing databases; NULL is treated as private.
 const canSeeDocument = (user, doc) =>
-  user.role === 'admin' || doc.is_private === false || doc.uploaded_by === user.id;
+  isSchoolWide(user) || doc.is_private === false || doc.uploaded_by === user.id;
 
 // SQL condition for list queries. Pushes the user id onto params when needed.
 const visibilityCondition = (user, params, alias = 'd') => {
-  if (user.role === 'admin') return null;
+  if (isSchoolWide(user)) return null;
   params.push(user.id);
   return `(COALESCE(${alias}.is_private, TRUE) = FALSE OR ${alias}.uploaded_by = $${params.length})`;
 };

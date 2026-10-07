@@ -15,6 +15,7 @@ const { sendSuccess,
 const { sendServerError } = require('../utils/errors');
 const { parsePagination } = require('../utils/pagination');
 const { setUserActive }   = require('../utils/sessions');
+const { scopeCondition } = require('../utils/scope');
 
 // ── Helper: Generate Student Number ─────────────────────────
 // Format: ASMS-<year>-<NNN>. NNN comes from student_number_seq (migration 014),
@@ -157,6 +158,10 @@ const getStudents = async (req, res) => {
       params.push(gender);
     }
 
+    // Teachers only see students in their own classes (admin/principal: all)
+    const scoped = await scopeCondition(req.user, 's.class_id', params);
+    if (scoped) { conditions.push(scoped); paramIdx = params.length + 1; }
+
     const whereClause = conditions.length
       ? 'WHERE ' + conditions.join(' AND ')
       : '';
@@ -253,6 +258,9 @@ const getStudentById = async (req, res) => {
     );
 
     student.parents = parents;
+
+    // Internal staff notes are not shown to students and parents
+    if (req.user.role === 'student' || req.user.role === 'parent') delete student.notes;
 
     return sendSuccess(res, student, 'Student profile retrieved.');
 

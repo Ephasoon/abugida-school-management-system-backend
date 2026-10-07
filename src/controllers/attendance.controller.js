@@ -24,7 +24,7 @@ const markAttendance = async (req, res) => {
     const { class_id, date, records } = req.body;
 
     // Validate
-    if (!date  || !records || !Array.isArray(records)) {
+    if (!class_id || !date || !records || !Array.isArray(records)) {
       return sendError(res, 'class_id, date, and records[] are required.', 400);
     }
 
@@ -56,6 +56,17 @@ const markAttendance = async (req, res) => {
         'SELECT id FROM teachers WHERE user_id = $1', [req.user.id]
       );
       teacher_id = rows[0]?.id || null;
+
+      // The route already checked the class is the teacher's own;
+      // every student must also be in that class.
+      const ids = records.map(r => String(r.student_id));
+      const { rows: inClass } = await db.query(
+        'SELECT id FROM students WHERE class_id = $1 AND id::text = ANY($2)', [class_id, ids]);
+      const allowed = new Set(inClass.map(r => r.id));
+      const outside = ids.filter(id => !allowed.has(id));
+      if (outside.length) {
+        return sendError(res, 'Some students are not in this class.', 403, { student_ids: outside });
+      }
     }
 
     // Begin transaction — all records save together or none do

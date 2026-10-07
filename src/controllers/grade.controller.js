@@ -5,6 +5,7 @@ const db            = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
 const { sendServerError } = require('../utils/errors');
 const { validateMaxScore } = require('../utils/examRules');
+const { scopeCondition } = require('../utils/scope');
 
 const VALID_TERMS = ['term1', 'term2', 'term3'];
 
@@ -105,6 +106,9 @@ const getExams = async (req, res) => {
     if (class_id)   { conditions.push(`e.class_id=$${idx++}`);   params.push(class_id); }
     if (term)       { conditions.push(`e.term=$${idx++}`);        params.push(term); }
     if (subject_id) { conditions.push(`e.subject_id=$${idx++}`);  params.push(subject_id); }
+    // Teachers only see exams of their own classes
+    const scoped = await scopeCondition(req.user, 'e.class_id', params);
+    if (scoped) { conditions.push(scoped); idx = params.length + 1; }
     const where = conditions.length ? 'WHERE '+conditions.join(' AND ') : '';
 
     const { rows } = await db.query(

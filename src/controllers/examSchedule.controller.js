@@ -16,6 +16,7 @@ const { sendSuccess,
         sendError } = require('../utils/response');
 const { sendServerError } = require('../utils/errors');
 const { validateMaxScore, isScoreRuleViolation } = require('../utils/examRules');
+const { scopeCondition } = require('../utils/scope');
 
 
 // ── POST /api/exam-schedule ──────────────────────────────────
@@ -175,6 +176,9 @@ const getAllScheduled = async (req, res) => {
     if (class_id)  { conditions.push(`e.class_id = $${idx++}`);   params.push(class_id); }
     if (from_date) { conditions.push(`e.exam_date >= $${idx++}`);  params.push(from_date); }
     if (to_date)   { conditions.push(`e.exam_date <= $${idx++}`);  params.push(to_date); }
+    // Only classes the user may see (teacher: own; student/parent: own or children's)
+    const scoped = await scopeCondition(req.user, 'e.class_id', params);
+    if (scoped) { conditions.push(scoped); idx = params.length + 1; }
 
     const where = 'WHERE ' + conditions.join(' AND ');
 
@@ -213,6 +217,8 @@ const getAllScheduled = async (req, res) => {
 const getUpcoming = async (req, res) => {
   try {
     const { days = 30 } = req.query;
+    const params = [parseInt(days)];
+    const scoped = await scopeCondition(req.user, 'e.class_id', params);
 
     const { rows } = await db.query(
       `SELECT
@@ -229,9 +235,10 @@ const getUpcoming = async (req, res) => {
        LEFT JOIN subjects s ON s.id = e.subject_id
        WHERE e.exam_date >= CURRENT_DATE
          AND e.exam_date <= CURRENT_DATE + $1::int
+         ${scoped ? 'AND ' + scoped : ''}
        ORDER BY e.exam_date ASC
        LIMIT 50`,
-      [parseInt(days)]
+      params
     );
 
     return sendSuccess(res, rows, `${rows.length} upcoming exam(s) in the next ${days} days.`);
@@ -249,6 +256,8 @@ const getCalendar = async (req, res) => {
     const { month, year } = req.query;
     const m = month || new Date().getMonth() + 1;
     const y = year  || new Date().getFullYear();
+    const params = [m, y];
+    const scoped = await scopeCondition(req.user, 'e.class_id', params);
 
     const { rows } = await db.query(
       `SELECT
@@ -262,8 +271,9 @@ const getCalendar = async (req, res) => {
        LEFT JOIN subjects s ON s.id = e.subject_id
        WHERE EXTRACT(MONTH FROM e.exam_date) = $1
          AND EXTRACT(YEAR  FROM e.exam_date) = $2
+         ${scoped ? 'AND ' + scoped : ''}
        ORDER BY e.exam_date ASC`,
-      [m, y]
+      params
     );
 
     // Group by date

@@ -6,19 +6,18 @@ const {
   getChildGrades, getChildAttendance, getChildFees, getChildTimetable,
 } = require('../controllers/parent.controller');
 const { authenticate } = require('../middleware/auth.middleware');
-const { authorize }    = require('../middleware/role.middleware');
+const { parentOnly }   = require('../middleware/role.middleware');
 
 router.use(authenticate);
 
-// All parent routes — only parents (and admins for testing)
-const parentOrAdmin = authorize('parent', 'admin');
+// Parent portal — parents only; every child route checks the parent-child link
 
-router.get('/profile',                       parentOrAdmin, getParentProfile);
-router.get('/children',                      parentOrAdmin, getChildren);
-router.get('/child/:studentId/summary',      parentOrAdmin, getChildSummary);
-router.get('/child/:studentId/grades',       parentOrAdmin, getChildGrades);
-router.get('/child/:studentId/attendance',   parentOrAdmin, getChildAttendance);
-router.get('/child/:studentId/fees',         parentOrAdmin, getChildFees);
-router.get('/child/:studentId/timetable',    parentOrAdmin, getChildTimetable);
+router.get('/profile',                       parentOnly, getParentProfile);
+router.get('/children',                      parentOnly, getChildren);
+router.get('/child/:studentId/summary',      parentOnly, getChildSummary);
+router.get('/child/:studentId/grades',       parentOnly, getChildGrades);
+router.get('/child/:studentId/attendance',   parentOnly, getChildAttendance);
+router.get('/child/:studentId/fees',         parentOnly, getChildFees);
+router.get('/child/:studentId/timetable',    parentOnly, getChildTimetable);
 
 module.exports = router;

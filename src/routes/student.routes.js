@@ -19,20 +19,20 @@ const {
   getStudentSummary,
 }                = require('../controllers/student.controller');
 const { authenticate }           = require('../middleware/auth.middleware');
-const { adminOnly, teacherOrAdmin, authorize } = require('../middleware/role.middleware');
+const { adminOnly, allStaff, allAuthenticated } = require('../middleware/role.middleware');
 const { requireStudentAccess } = require('../middleware/studentAccess.middleware');
 
 // All routes below require a valid JWT token
 router.use(authenticate);
 
 // ── List & Create ────────────────────────────────────────────
-router.get ('/'         , teacherOrAdmin, getStudents);   // GET  /api/students
+router.get ('/'         , allStaff,       getStudents);   // teachers: own classes only   // GET  /api/students
 router.post('/'         , adminOnly,      createStudent); // POST /api/students
 
 // ── Single Student ───────────────────────────────────────────
-router.get ('/:id'         , teacherOrAdmin,                    getStudentById);   // GET    /api/students/:id
+router.get ('/:id'         , allAuthenticated, requireStudentAccess('id'), getStudentById);   // GET    /api/students/:id
 router.put ('/:id'         , adminOnly,                         updateStudent);    // PUT    /api/students/:id
 router.delete('/:id'       , adminOnly,                         archiveStudent);   // DELETE /api/students/:id
-router.get ('/:id/summary' , authorize('admin','teacher','student','parent'), requireStudentAccess('id'), getStudentSummary); // GET /api/students/:id/summary
+router.get ('/:id/summary' , allAuthenticated, requireStudentAccess('id'), getStudentSummary); // GET /api/students/:id/summary
 
 module.exports = router;
