@@ -5,6 +5,7 @@
 //   POST   /api/accounts/students/:studentId/login → login for an existing student
 //   GET    /api/accounts/parents                   → parents + linked children
 //   POST   /api/accounts/parents                   → parent profile + login
+//   POST   /api/accounts/parents/:parentId/login   → login for an existing parent
 //   POST   /api/accounts/parents/:parentId/children           → link a child
 //   DELETE /api/accounts/parents/:parentId/children/:studentId → unlink
 //   POST   /api/accounts/principals                → principal login
@@ -219,6 +220,41 @@ const createParent = async (req, res) => {
 };
 
 
+// ── POST /api/accounts/parents/:parentId/login ───────────────
+// For a parent profile that exists without a login (links and contact details are kept).
+const createParentLogin = async (req, res) => {
+  try {
+    const { parentId } = req.params;
+    const email = normalizeEmail(req.body.email);
+    if (!EMAIL_RE.test(email)) return sendError(res, 'A valid email is required.', 400);
+
+    const { rows: par } = await db.query(
+      'SELECT id, user_id, full_name FROM parents WHERE id::text = $1', [parentId]);
+    if (!par[0]) return sendError(res, 'Parent not found.', 404);
+    if (par[0].user_id) return sendError(res, 'This parent already has a login.', 409);
+    if (await emailTaken(email)) return sendError(res, 'A user with this email already exists.', 409);
+
+    const result = await inTransaction(async (client) => {
+      const login = await createLogin(client, email, 'parent');
+      // user_id IS NULL guards against a concurrent request linking a login first
+      const { rowCount } = await client.query(
+        'UPDATE parents SET user_id = $1 WHERE id = $2 AND user_id IS NULL', [login.user.id, par[0].id]);
+      if (!rowCount) throw Object.assign(new Error('parent already linked'), { status: 409 });
+      await audit(client, req, 'account.parent_login_created', 'parent', par[0].id, { email });
+      return login;
+    });
+
+    return sendSuccess(res, {
+      user_id: result.user.id, email, role: 'parent', parent_id: par[0].id,
+      temporary_password: result.temporaryPassword,
+    }, `Login created for ${par[0].full_name}. Share the temporary password privately; it must be changed at first login.`, 201);
+  } catch (err) {
+    if (err.status === 409) return sendError(res, 'This parent already has a login.', 409);
+    return sendServerError(res, err, 'Server error while creating the parent login.');
+  }
+};
+
+
 // ── POST /api/accounts/parents/:parentId/children ────────────
 const linkChild = async (req, res) => {
   try {
@@ -359,5 +395,6 @@ const resetPassword = async (req, res) => {
 
 module.exports = {
   getUsers, createStudentLogin, getParents, createParent,
-  linkChild, unlinkChild, createPrincipal, setPrincipalStatus, resetPassword,
+  createParentLogin, linkChild, unlinkChild, createPrincipal,
+  setPrincipalStatus, resetPassword,
 };
