@@ -246,6 +246,47 @@ const getChildFees = async (req, res) => {
 };
 
 
+// ── GET /api/parent/fees ─────────────────────────────────────
+// Fee balance for every linked child, plus family totals.
+const getFamilyFees = async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT s.id AS student_id, s.student_number,
+              s.first_name || ' ' || s.last_name AS name,
+              c.name AS class_name,
+              COALESCE(SUM(pay.amount_due), 0)  AS total_due,
+              COALESCE(SUM(pay.amount_paid), 0) AS total_paid,
+              COUNT(pay.id)::int                AS payment_count
+       FROM parents p
+       JOIN student_parents sp ON sp.parent_id = p.id
+       JOIN students s         ON s.id = sp.student_id
+       LEFT JOIN classes c     ON c.id = s.class_id
+       LEFT JOIN payments pay  ON pay.student_id = s.id
+       WHERE p.user_id = $1
+       GROUP BY s.id, s.student_number, s.first_name, s.last_name, c.name
+       ORDER BY s.first_name`,
+      [req.user.id]
+    );
+
+    const children = rows.map(r => {
+      const due = parseFloat(r.total_due), paid = parseFloat(r.total_paid);
+      const status = !r.payment_count ? 'no_records'
+                   : due <= paid ? 'paid' : paid === 0 ? 'unpaid' : 'partial';
+      return { ...r, total_due: due, total_paid: paid, balance: due - paid, status };
+    });
+    const totalDue  = children.reduce((sum, c) => sum + c.total_due, 0);
+    const totalPaid = children.reduce((sum, c) => sum + c.total_paid, 0);
+
+    return sendSuccess(res, {
+      children,
+      family: { total_due: totalDue, total_paid: totalPaid, balance: totalDue - totalPaid },
+    }, `Fees for ${children.length} child(ren).`);
+  } catch (err) {
+    return sendServerError(res, err, 'Server error.');
+  }
+};
+
+
 // ── GET /api/parent/child/:studentId/timetable ───────────────
 const getChildTimetable = async (req, res) => {
   try {
@@ -286,5 +327,5 @@ const getChildTimetable = async (req, res) => {
 
 module.exports = {
   getParentProfile, getChildren, getChildSummary,
-  getChildGrades, getChildAttendance, getChildFees, getChildTimetable,
+  getChildGrades, getChildAttendance, getChildFees, getChildTimetable, getFamilyFees,
 };

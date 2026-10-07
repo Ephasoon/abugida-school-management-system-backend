@@ -34,6 +34,8 @@ const getOverview = async (req, res) => {
       `SELECT COALESCE(SUM(amount_due),0) AS total_expected,
               COALESCE(SUM(amount_paid),0) AS total_collected,
               COALESCE(SUM(amount_due)-SUM(amount_paid),0) AS outstanding,
+         -- same value under the name the dashboards read (was missing, so they showed 0)
+         COALESCE(SUM(amount_due)-SUM(amount_paid),0) AS total_outstanding,
               ROUND(COALESCE(SUM(amount_paid),0)*100/NULLIF(COALESCE(SUM(amount_due),0),0),1) AS collection_rate
        FROM payments`
     );
