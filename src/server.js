@@ -21,9 +21,13 @@ const documentRoutes     = require('./routes/document.routes');
 
 const app = express();
 app.use(helmet());
+// Allowed browser origins come from CORS_ORIGINS (comma-separated).
+// The 'null' origin (file://, sandboxed iframes) is never allowed.
+const DEFAULT_CORS_ORIGINS = 'http://localhost:5500,http://127.0.0.1:5500,http://localhost:5501,http://127.0.0.1:5501';
+const corsOrigins = (process.env.CORS_ORIGINS || DEFAULT_CORS_ORIGINS)
+  .split(',').map(o => o.trim()).filter(o => o && o !== 'null');
 app.use(cors({
-  origin: ['http://localhost:5500','http://127.0.0.1:5500',
-           'http://localhost:5501','http://127.0.0.1:5501','null'],
+  origin: corsOrigins,
   credentials: true,
 }));
 app.use(express.json());

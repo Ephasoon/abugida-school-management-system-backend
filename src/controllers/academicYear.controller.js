@@ -13,6 +13,7 @@
 const db            = require('../config/db');
 const { sendSuccess,
         sendError } = require('../utils/response');
+const { setUserActive } = require('../utils/sessions');
 
 
 // ── GET /api/academic-years ───────────────────────────────────
@@ -267,10 +268,14 @@ const promoteStudents = async (req, res) => {
 
         if (grade >= 12) {
           // Graduate grade 12
-          await client.query(
+          const { rows: gradUsers } = await client.query(
             `UPDATE students SET status='graduated', updated_at=NOW()
-             WHERE id=ANY($1)`, [ids]
+             WHERE id=ANY($1) RETURNING user_id`, [ids]
           );
+          // Graduated students lose login access, like any non-active student
+          for (const { user_id } of gradUsers) {
+            await setUserActive(user_id, false, client);
+          }
           graduated += ids.length;
           results.push({ from:`Grade ${grade} ${fc.section}`, action:'graduated', count:ids.length });
           continue;

@@ -14,6 +14,8 @@ const db                 = require('../config/db');
 const bcrypt             = require('bcryptjs');
 const { sendSuccess,
         sendError }      = require('../utils/response');
+const { generateTemporaryPassword } = require('../utils/password');
+const { setUserActive }  = require('../utils/sessions');
 
 
 // ── Helper: Generate Teacher Number ──────────────────────────
@@ -31,7 +33,7 @@ const createTeacher = async (req, res) => {
     const {
       first_name, last_name, email, phone,
       gender, specialization, qualification,
-      hire_date, password = 'Teacher@1234',
+      hire_date,
     } = req.body;
 
     if (!first_name || !last_name || !email) {
@@ -48,11 +50,13 @@ const createTeacher = async (req, res) => {
 
     await client.query('BEGIN');
 
-    // 1. Create login account
-    const hash = await bcrypt.hash(password, 12);
+    // 1. Create login account with a one-time temporary password.
+    //    must_change_password blocks every route until the teacher sets their own.
+    const temporaryPassword = generateTemporaryPassword();
+    const hash = await bcrypt.hash(temporaryPassword, 12);
     const { rows: userRows } = await client.query(
-      `INSERT INTO users (email, password_hash, role)
-       VALUES ($1, $2, 'teacher') RETURNING id`,
+      `INSERT INTO users (email, password_hash, role, must_change_password)
+       VALUES ($1, $2, 'teacher', TRUE) RETURNING id`,
       [email.toLowerCase().trim(), hash]
     );
 
@@ -75,10 +79,12 @@ const createTeacher = async (req, res) => {
 
     await client.query('COMMIT');
 
+    // The temporary password is returned exactly once, in its own field.
+    // It is never stored in plain text or included in the message.
     return sendSuccess(res, {
       ...rows[0], email,
-      login_password: password,
-    }, `Teacher ${teacher_number} added. Login: ${email} / ${password}`, 201);
+      temporary_password: temporaryPassword,
+    }, `Teacher ${teacher_number} added. Share the temporary password privately; it must be changed at first login.`, 201);
 
   } catch (err) {
     await client.query('ROLLBACK');
@@ -193,6 +199,11 @@ const updateTeacher = async (req, res) => {
        specialization, qualification, hire_date, is_active, id]
     );
     if (!rows[0]) return sendError(res, 'Teacher not found.', 404);
+
+    // Deactivating a teacher also disables their login and revokes all sessions
+    if (is_active !== undefined && is_active !== null) {
+      await setUserActive(rows[0].user_id, rows[0].is_active);
+    }
     return sendSuccess(res, rows[0], 'Teacher updated.');
 
   } catch (err) {

@@ -13,6 +13,7 @@ const db                     = require('../config/db');
 const { sendSuccess,
         sendError }          = require('../utils/response');
 const { parsePagination } = require('../utils/pagination');
+const { setUserActive }   = require('../utils/sessions');
 
 // ── Helper: Generate Student Number ─────────────────────────
 // Format: ASMS-2024-001, ASMS-2024-002, etc.
@@ -314,6 +315,11 @@ const updateStudent = async (req, res) => {
       ]
     );
 
+    // Any status other than 'active' disables the student's login (if any)
+    if (status) {
+      await setUserActive(rows[0].user_id, rows[0].status === 'active');
+    }
+
     // Log change
     await db.query(
       `INSERT INTO audit_logs (user_id, action, target_type, target_id, old_data, new_data)
@@ -344,13 +350,15 @@ const archiveStudent = async (req, res) => {
       `UPDATE students
        SET status = 'withdrawn', updated_at = NOW()
        WHERE id = $1
-       RETURNING student_number, first_name, last_name`,
+       RETURNING student_number, first_name, last_name, user_id`,
       [id]
     );
 
     if (!rows[0]) {
       return sendError(res, 'Student not found.', 404);
     }
+
+    await setUserActive(rows[0].user_id, false);
 
     await db.query(
       `INSERT INTO audit_logs (user_id, action, target_type, target_id)
