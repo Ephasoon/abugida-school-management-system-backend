@@ -11,7 +11,7 @@ const {
   cancelExam,
 } = require('../controllers/examSchedule.controller');
 const { authenticate }              = require('../middleware/auth.middleware');
-const { adminOnly, allAuthenticated } = require('../middleware/role.middleware');
+const { adminOnly, teacherOrAdmin, allAuthenticated } = require('../middleware/role.middleware');
 const { requireClassAccess } = require('../middleware/studentAccess.middleware');
 
 router.use(authenticate);
@@ -23,7 +23,7 @@ router.get('/class/:classId',    allAuthenticated, requireClassAccess('classId')
 router.get('/',                  allAuthenticated, getAllScheduled);
 
 // Write routes — admin only
-router.post('/',    adminOnly, scheduleExam);
+router.post('/',    teacherOrAdmin, scheduleExam);   // teacher: own class + subject only
 router.put('/:id',  adminOnly, updateSchedule);
 router.delete('/:id', adminOnly, cancelExam);
 

@@ -17,147 +17,26 @@ const { sendSuccess,
 const { sendServerError } = require('../utils/errors');
 const { validateMaxScore, isScoreRuleViolation } = require('../utils/examRules');
 const { scopeCondition } = require('../utils/scope');
+const { createExam, ExamError } = require('../services/exam.service');
 
 
 // ── POST /api/exam-schedule ──────────────────────────────────
 const scheduleExam = async (req, res) => {
+  // Admin: any class. Teacher: own class + subject only (services/exam.service.js).
   try {
-    const {
-      class_id,
-      subject_id,
-      exam_type,
-      term,
-      name,
-      exam_date,
-      start_time,
-      end_time,
-      room,
-      max_score = 100,
-      instructions,
-    } = req.body;
-
-    // Validate required fields
-    if (!class_id || !subject_id || !name || !exam_type || !term || !exam_date) {
-      return sendError(res,
-        'class_id, subject_id, name, exam_type, term, and exam_date are required.', 400);
-    }
-
-    const validTypes = ['quiz','midterm','final','assignment','project'];
-    const validTerms = ['term1','term2','term3'];
-
-    if (!validTypes.includes(exam_type)) {
-      return sendError(res, `exam_type must be: ${validTypes.join(', ')}`, 400);
-    }
-    if (!validTerms.includes(term)) {
-      return sendError(res, `term must be: ${validTerms.join(', ')}`, 400);
-    }
-    const maxScoreError = validateMaxScore(max_score);
-    if (maxScoreError) return sendError(res, maxScoreError, 400);
-
-    // Check class exists
-    const { rows: cls } = await db.query(
-      'SELECT id, name FROM classes WHERE id = $1', [class_id]
-    );
-    if (!cls[0]) return sendError(res, 'Class not found.', 404);
-
-    // Check subject exists
-    const { rows: sub } = await db.query(
-      'SELECT id, name FROM subjects WHERE id = $1', [subject_id]
-    );
-    if (!sub[0]) return sendError(res, 'Subject not found.', 404);
-
-    // Check for scheduling conflict (same class, same date, overlapping time)
-    if (start_time && end_time) {
-      const { rows: conflict } = await db.query(
-        `SELECT e.id, e.name FROM exams e
-         WHERE e.class_id = $1
-           AND e.exam_date = $2
-           AND e.exam_date IS NOT NULL`,
-        [class_id, exam_date]
-      );
-      if (conflict.length > 0) {
-        return sendError(res,
-          `Conflict: ${cls[0].name} already has "${conflict[0].name}" scheduled on ${exam_date}.`,
-          409);
-      }
-    }
-
-    // Get current academic year
-    const { rows: yearRows } = await db.query(
-      'SELECT id FROM academic_years WHERE is_current = TRUE LIMIT 1'
-    );
-
-    // Get teacher for this class+subject
-    let created_by = null;
-    if (req.user.role === 'teacher') {
-      const { rows: tRows } = await db.query(
-        'SELECT id FROM teachers WHERE user_id = $1', [req.user.id]
-      );
-      created_by = tRows[0]?.id || null;
-    }
-
-    if (start_time && end_time && end_time <= start_time) {
-      return sendError(res, 'end_time must be after start_time.', 400);
-    }
-
-    // The exam and its schedule details are saved together or not at all
-    const client = await db.pool.connect();
-    let rows;
-    try {
-      await client.query('BEGIN');
-
-      // Create exam in the exams table (extends existing exams system)
-      ({ rows } = await client.query(
-        `INSERT INTO exams
-           (class_id, subject_id, academic_year_id, name, exam_type,
-            term, max_score, exam_date, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-         RETURNING *`,
-        [
-          class_id, subject_id,
-          yearRows[0]?.id || null,
-          name.trim(), exam_type, term,
-          parseFloat(max_score),
-          exam_date,
-          created_by,
-        ]
-      ));
-
-      // Extra scheduling details live in exam_schedules (migration 011)
-      await client.query(
-        `INSERT INTO exam_schedules
-           (exam_id, start_time, end_time, room, instructions)
-         VALUES ($1,$2,$3,$4,$5)
-         ON CONFLICT (exam_id) DO UPDATE SET
-           start_time   = EXCLUDED.start_time,
-           end_time     = EXCLUDED.end_time,
-           room         = EXCLUDED.room,
-           instructions = EXCLUDED.instructions`,
-        [
-          rows[0].id,
-          start_time || null,
-          end_time   || null,
-          room?.trim() || null,
-          instructions?.trim() || null,
-        ]
-      );
-
-      await client.query('COMMIT');
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
-
+    const { exam, schedule, className, subjectName } =
+      await createExam(req.user, req.body, { requireDate: true });
     return sendSuccess(res, {
-      ...rows[0],
-      class_name:   cls[0].name,
-      subject_name: sub[0].name,
-      room, start_time, end_time, instructions,
-    }, `Exam "${name}" scheduled for ${exam_date}.`, 201);
-
+      ...exam,
+      class_name:   className,
+      subject_name: subjectName,
+      room:         schedule?.room ?? null,
+      start_time:   schedule?.start_time ?? null,
+      end_time:     schedule?.end_time ?? null,
+      instructions: schedule?.instructions ?? null,
+    }, `Exam "${exam.name}" scheduled for ${exam.exam_date}.`, 201);
   } catch (err) {
+    if (err instanceof ExamError) return sendError(res, err.message, err.status, err.errors);
     return sendServerError(res, err, 'Server error while scheduling exam.');
   }
 };

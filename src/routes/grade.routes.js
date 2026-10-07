@@ -14,7 +14,7 @@ const { requireStudentAccess } = require('../middleware/studentAccess.middleware
 router.use(authenticate);
 
 // Exams
-router.post('/exams', teacherOrAdmin, createExam);
+router.post('/exams', teacherOrAdmin, createExam);   // deprecated: use POST /api/exam-schedule
 router.get ('/exams', allStaff,       getExams);   // teachers: own classes only
 
 // Grades
