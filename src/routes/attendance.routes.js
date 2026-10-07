@@ -22,9 +22,6 @@ router.use(authenticate);
 // Mark attendance for a class (teachers + admins)
 router.post('/',                        teacherOrAdmin,  markAttendance);
 
-// Get attendance for a class on a date (teachers + admins)
-router.get('/:classId/:date',           teacherOrAdmin,  getClassAttendance);
-
 // Correct a single record (admin only)
 router.put('/:id',                      adminOnly,       updateAttendance);
 
@@ -33,5 +30,9 @@ router.get('/student/:studentId',       authorize('admin','teacher','student','p
 
 // Monthly class report (teachers + admins)
 router.get('/report/:classId',          teacherOrAdmin,  getClassReport);
+
+// Registered last: this pattern would otherwise swallow /student/:id and /report/:id
+// Get attendance for a class on a date (teachers + admins)
+router.get('/:classId/:date',           teacherOrAdmin,  getClassAttendance);
 
 module.exports = router;

@@ -11,6 +11,7 @@
 const db                 = require('../config/db');
 const { sendSuccess,
         sendError }      = require('../utils/response');
+const { parsePagination } = require('../utils/pagination');
 
 
 // ── POST /api/attendance ─────────────────────────────────────
@@ -216,7 +217,9 @@ const updateAttendance = async (req, res) => {
 const getStudentAttendance = async (req, res) => {
   try {
     const { studentId }              = req.params;
-    const { month, year, limit = 30 } = req.query;
+    const { month, year } = req.query;
+    const pg = parsePagination(req.query);
+    if (pg.error) return sendError(res, pg.error, 400);
 
     // Build date filter
     let dateFilter = '';
@@ -240,8 +243,8 @@ const getStudentAttendance = async (req, res) => {
        WHERE a.student_id = $1
          ${dateFilter}
        ORDER BY a.date DESC
-       LIMIT ${parseInt(limit)}`,
-      params
+       LIMIT $${params.length + 1}`,
+      [...params, pg.limit]
     );
 
     // Calculate overall stats
@@ -256,8 +259,8 @@ const getStudentAttendance = async (req, res) => {
            COUNT(*) FILTER (WHERE status = 'present') * 100.0
            / NULLIF(COUNT(*), 0), 1
          )                                               AS attendance_rate
-       FROM attendance
-       WHERE student_id = $1 ${dateFilter}`,
+       FROM attendance a
+       WHERE a.student_id = $1 ${dateFilter}`,
       params
     );
 

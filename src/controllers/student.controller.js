@@ -12,6 +12,7 @@
 const db                     = require('../config/db');
 const { sendSuccess,
         sendError }          = require('../utils/response');
+const { parsePagination } = require('../utils/pagination');
 
 // ── Helper: Generate Student Number ─────────────────────────
 // Format: ASMS-2024-001, ASMS-2024-002, etc.
@@ -120,11 +121,11 @@ const getStudents = async (req, res) => {
       class_id = '',
       status   = 'active',
       gender   = '',
-      page     = 1,
-      limit    = 20,
     } = req.query;
 
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const pg = parsePagination(req.query);
+    if (pg.error) return sendError(res, pg.error, 400);
+    const { page, limit, offset } = pg;
 
     // Build dynamic WHERE clause
     const conditions = [];

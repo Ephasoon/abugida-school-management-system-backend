@@ -3,6 +3,7 @@
 
 const db            = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
+const { parsePagination } = require('../utils/pagination');
 
 // Helper: get current academic year
 const getCurrentYear = async () => {
@@ -89,12 +90,14 @@ const recordPayment = async (req, res) => {
 // GET /api/finance/payments — List payments
 const getPayments = async (req, res) => {
   try {
-    const { student_id, term, page=1, limit=20 } = req.query;
+    const { student_id, term } = req.query;
+    const pg = parsePagination(req.query);
+    if (pg.error) return sendError(res, pg.error, 400);
+    const { page, limit, offset } = pg;
     const conditions=[]; const params=[]; let idx=1;
     if (student_id) { conditions.push(`p.student_id=$${idx++}`); params.push(student_id); }
     if (term)       { conditions.push(`p.term=$${idx++}`);        params.push(term); }
     const where = conditions.length ? 'WHERE '+conditions.join(' AND ') : '';
-    const offset = (parseInt(page)-1)*parseInt(limit);
 
     const { rows } = await db.query(
       `SELECT p.*,
@@ -131,8 +134,8 @@ const getPayments = async (req, res) => {
 const getFinanceSummary = async (req, res) => {
   try {
     const currentYear = await getCurrentYear();
-    const yearFilter  = currentYear
-      ? `WHERE p.academic_year_id='${currentYear.id}'` : '';
+    const yearFilter  = currentYear ? 'WHERE p.academic_year_id = $1' : '';
+    const yearParams  = currentYear ? [currentYear.id] : [];
 
     const { rows: summary } = await db.query(
       `SELECT
@@ -142,13 +145,15 @@ const getFinanceSummary = async (req, res) => {
          ROUND(COALESCE(SUM(amount_paid),0)*100/
            NULLIF(COALESCE(SUM(amount_due),0),0),1) AS collection_rate,
          COUNT(DISTINCT student_id) AS paying_students
-       FROM payments p ${yearFilter}`
+       FROM payments p ${yearFilter}`,
+      yearParams
     );
 
     const { rows: byMethod } = await db.query(
       `SELECT payment_method, SUM(amount_paid) AS total, COUNT(*) AS count
        FROM payments p ${yearFilter}
-       GROUP BY payment_method ORDER BY total DESC`
+       GROUP BY payment_method ORDER BY total DESC`,
+      yearParams
     );
 
     const { rows: recent } = await db.query(
@@ -158,7 +163,8 @@ const getFinanceSummary = async (req, res) => {
        FROM payments p
        LEFT JOIN students s ON s.id=p.student_id
        ${yearFilter}
-       ORDER BY p.created_at DESC LIMIT 10`
+       ORDER BY p.created_at DESC LIMIT 10`,
+      yearParams
     );
 
     return sendSuccess(res, {

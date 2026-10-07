@@ -2,6 +2,7 @@ const db = require('../config/db');
 const path = require('path');
 const fs = require('fs');
 const { sendSuccess, sendError } = require('../utils/response');
+const { parsePagination } = require('../utils/pagination');
 
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'documents');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -44,7 +45,10 @@ const uploadDocument = async (req, res) => {
 
 const getDocuments = async (req, res) => {
   try {
-    const { student_id, teacher_id, category, search='', page=1, limit=20 } = req.query;
+    const { student_id, teacher_id, category, search='' } = req.query;
+    const pg = parsePagination(req.query);
+    if (pg.error) return sendError(res, pg.error, 400);
+    const { page, limit, offset } = pg;
     const conditions=[]; const params=[]; let idx=1;
     if (student_id) { conditions.push(`d.student_id=$${idx++}`); params.push(student_id); }
     if (teacher_id) { conditions.push(`d.teacher_id=$${idx++}`); params.push(teacher_id); }
@@ -54,7 +58,6 @@ const getDocuments = async (req, res) => {
       params.push(`%${search.trim()}%`); idx++;
     }
     const where = conditions.length ? 'WHERE '+conditions.join(' AND ') : '';
-    const offset = (parseInt(page)-1)*parseInt(limit);
     const { rows } = await db.query(
       `SELECT d.*, s.first_name||' '||s.last_name AS student_name,
          s.student_number, u.email AS uploaded_by_email

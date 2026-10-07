@@ -4,6 +4,8 @@
 const db            = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
 
+const VALID_TERMS = ['term1', 'term2', 'term3'];
+
 // Helper: get current academic year id
 const getCurrentYearId = async () => {
   const { rows } = await db.query(
@@ -169,7 +171,11 @@ const getReportCard = async (req, res) => {
     );
     if (!stuRows[0]) return sendError(res, 'Student not found.', 404);
 
-    const termFilter = term ? `AND e.term='${term}'` : '';
+    if (term && !VALID_TERMS.includes(term)) {
+      return sendError(res, `term must be one of: ${VALID_TERMS.join(', ')}`, 400);
+    }
+    const termFilter = term ? 'AND e.term = $2' : '';
+    const gradeParams = term ? [studentId, term] : [studentId];
     const { rows: gradeRows } = await db.query(
       `SELECT s.name AS subject, e.term, e.exam_type, e.max_score,
               g.score, g.grade_letter,
@@ -178,7 +184,7 @@ const getReportCard = async (req, res) => {
        JOIN exams    e ON e.id=g.exam_id
        JOIN subjects s ON s.id=e.subject_id
        WHERE g.student_id=$1 ${termFilter}
-       ORDER BY s.name, e.exam_type`, [studentId]
+       ORDER BY s.name, e.exam_type`, gradeParams
     );
 
     // Group by subject
