@@ -13,6 +13,7 @@
 const db            = require('../config/db');
 const { sendSuccess,
         sendError } = require('../utils/response');
+const { sendServerError } = require('../utils/errors');
 const { setUserActive } = require('../utils/sessions');
 
 
@@ -31,8 +32,7 @@ const getAcademicYears = async (req, res) => {
     );
     return sendSuccess(res, rows, `Found ${rows.length} academic year(s).`);
   } catch (err) {
-    console.error('getAcademicYears:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -53,7 +53,7 @@ const getCurrentYear = async (req, res) => {
     if (!rows[0]) return sendError(res, 'No current academic year set.', 404);
     return sendSuccess(res, rows[0], 'Current academic year retrieved.');
   } catch (err) {
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -85,8 +85,7 @@ const createAcademicYear = async (req, res) => {
     return sendSuccess(res, rows[0], `Academic year ${name} created.`, 201);
 
   } catch (err) {
-    console.error('createAcademicYear:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -108,7 +107,7 @@ const updateAcademicYear = async (req, res) => {
     if (!rows[0]) return sendError(res, 'Academic year not found.', 404);
     return sendSuccess(res, rows[0], 'Academic year updated.');
   } catch (err) {
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -144,8 +143,7 @@ const activateYear = async (req, res) => {
 
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error('activateYear:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   } finally {
     client.release();
   }
@@ -217,8 +215,7 @@ const getYearStats = async (req, res) => {
     }, `Statistics for ${yr[0].name}.`);
 
   } catch (err) {
-    console.error('getYearStats:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -329,8 +326,7 @@ const promoteStudents = async (req, res) => {
 
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error('promoteStudents:', err);
-    return sendError(res, 'Server error during promotion.', 500);
+    return sendServerError(res, err, 'Server error during promotion.');
   } finally {
     client.release();
   }

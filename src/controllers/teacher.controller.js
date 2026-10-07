@@ -14,6 +14,7 @@ const db                 = require('../config/db');
 const bcrypt             = require('bcryptjs');
 const { sendSuccess,
         sendError }      = require('../utils/response');
+const { sendServerError } = require('../utils/errors');
 const { generateTemporaryPassword } = require('../utils/password');
 const { setUserActive }  = require('../utils/sessions');
 
@@ -88,8 +89,7 @@ const createTeacher = async (req, res) => {
 
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error('createTeacher error:', err);
-    return sendError(res, 'Server error while adding teacher.', 500);
+    return sendServerError(res, err, 'Server error while adding teacher.');
   } finally {
     client.release();
   }
@@ -130,8 +130,7 @@ const getTeachers = async (req, res) => {
     return sendSuccess(res, rows, `Found ${rows.length} teacher(s).`);
 
   } catch (err) {
-    console.error('getTeachers error:', err);
-    return sendError(res, 'Server error while fetching teachers.', 500);
+    return sendServerError(res, err, 'Server error while fetching teachers.');
   }
 };
 
@@ -170,8 +169,7 @@ const getTeacherById = async (req, res) => {
     return sendSuccess(res, teacher, 'Teacher profile retrieved.');
 
   } catch (err) {
-    console.error('getTeacherById error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -207,8 +205,7 @@ const updateTeacher = async (req, res) => {
     return sendSuccess(res, rows[0], 'Teacher updated.');
 
   } catch (err) {
-    console.error('updateTeacher error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -233,8 +230,7 @@ const assignSubjects = async (req, res) => {
     return sendSuccess(res, null, `${subject_ids.length} subject(s) assigned.`);
 
   } catch (err) {
-    console.error('assignSubjects error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -257,8 +253,7 @@ const assignClass = async (req, res) => {
     return sendSuccess(res, null, 'Teacher assigned to class.');
 
   } catch (err) {
-    console.error('assignClass error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -271,7 +266,7 @@ const getAllSubjects = async (req, res) => {
     );
     return sendSuccess(res, rows, `${rows.length} subject(s) found.`);
   } catch (err) {
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 

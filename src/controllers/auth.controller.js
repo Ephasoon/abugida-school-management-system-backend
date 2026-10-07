@@ -16,6 +16,7 @@ const { generateAccessToken }                  = require('../utils/jwt');
 const { createSession, findActiveSession,
         revokeSession, revokeAllSessions }     = require('../utils/sessions');
 const { sendSuccess, sendError }               = require('../utils/response');
+const { sendServerError } = require('../utils/errors');
 
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
@@ -88,8 +89,7 @@ const login = async (req, res) => {
     }, 'Login successful.');
 
   } catch (err) {
-    console.error('Login error:', err);
-    return sendError(res, 'Server error during login.', 500);
+    return sendServerError(res, err, 'Server error during login.');
   }
 };
 
@@ -129,8 +129,7 @@ const refresh = async (req, res) => {
     return sendSuccess(res, { accessToken }, 'Token refreshed.');
 
   } catch (err) {
-    console.error('Refresh error:', err);
-    return sendError(res, 'Server error during token refresh.', 500);
+    return sendServerError(res, err, 'Server error during token refresh.');
   }
 };
 
@@ -144,8 +143,7 @@ const logout = async (req, res) => {
     res.clearCookie('refreshToken', REFRESH_COOKIE_OPTIONS);
     return sendSuccess(res, null, 'Logged out successfully.');
   } catch (err) {
-    console.error('Logout error:', err);
-    return sendError(res, 'Server error during logout.', 500);
+    return sendServerError(res, err, 'Server error during logout.');
   }
 };
 
@@ -180,8 +178,7 @@ const getMe = async (req, res) => {
     return sendSuccess(res, rows[0], 'User profile retrieved.');
 
   } catch (err) {
-    console.error('GetMe error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -238,8 +235,7 @@ const changePassword = async (req, res) => {
       'Password changed successfully. Other sessions have been signed out.');
 
   } catch (err) {
-    console.error('ChangePassword error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 

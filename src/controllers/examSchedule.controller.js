@@ -14,6 +14,7 @@
 const db            = require('../config/db');
 const { sendSuccess,
         sendError } = require('../utils/response');
+const { sendServerError } = require('../utils/errors');
 
 
 // ── POST /api/exam-schedule ──────────────────────────────────
@@ -140,8 +141,7 @@ const scheduleExam = async (req, res) => {
     }, `Exam "${name}" scheduled for ${exam_date}.`, 201);
 
   } catch (err) {
-    console.error('scheduleExam error:', err);
-    return sendError(res, 'Server error while scheduling exam.', 500);
+    return sendServerError(res, err, 'Server error while scheduling exam.');
   }
 };
 
@@ -188,8 +188,7 @@ const getAllScheduled = async (req, res) => {
     return sendSuccess(res, rows, `Found ${rows.length} scheduled exam(s).`);
 
   } catch (err) {
-    console.error('getAllScheduled error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -222,8 +221,7 @@ const getUpcoming = async (req, res) => {
     return sendSuccess(res, rows, `${rows.length} upcoming exam(s) in the next ${days} days.`);
 
   } catch (err) {
-    console.error('getUpcoming error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -270,8 +268,7 @@ const getCalendar = async (req, res) => {
     }, `Calendar for ${m}/${y}.`);
 
   } catch (err) {
-    console.error('getCalendar error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -305,8 +302,7 @@ const getClassExams = async (req, res) => {
     return sendSuccess(res, rows, `Found ${rows.length} exam(s) for this class.`);
 
   } catch (err) {
-    console.error('getClassExams error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -332,8 +328,7 @@ const updateSchedule = async (req, res) => {
     return sendSuccess(res, rows[0], 'Exam schedule updated.');
 
   } catch (err) {
-    console.error('updateSchedule error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -360,8 +355,7 @@ const cancelExam = async (req, res) => {
     return sendSuccess(res, null, `Exam "${rows[0].name}" cancelled.`);
 
   } catch (err) {
-    console.error('cancelExam error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 

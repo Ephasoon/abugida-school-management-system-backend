@@ -8,12 +8,14 @@ const {
 } = require('../controllers/pdf.controller');
 const { authenticate }              = require('../middleware/auth.middleware');
 const { teacherOrAdmin, authorize } = require('../middleware/role.middleware');
+const { requireStudentAccess } = require('../middleware/studentAccess.middleware');
 
 router.use(authenticate);
 
 // Report Card — admin, teacher, or the student themselves
 router.get('/report-card/:studentId',
   authorize('admin','teacher','student','parent'),
+  requireStudentAccess('studentId'),
   getReportCardPDF
 );
 

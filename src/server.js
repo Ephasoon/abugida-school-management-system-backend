@@ -18,6 +18,7 @@ const academicYearRoutes = require('./routes/academicYear.routes');
 const examScheduleRoutes = require('./routes/examSchedule.routes');
 const analyticsRoutes    = require('./routes/analytics.routes');
 const documentRoutes     = require('./routes/document.routes');
+const { sendServerError } = require('./utils/errors');
 
 const app = express();
 app.use(helmet());
@@ -59,10 +60,7 @@ app.use('/api/documents',      documentRoutes);
 app.use((req, res) => res.status(404).json({
   success:false, message:`Route not found: ${req.method} ${req.originalUrl}`
 }));
-app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(500).json({ success:false, message:'Internal server error.' });
-});
+app.use((err, req, res, next) => sendServerError(res, err, 'Internal server error.'));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

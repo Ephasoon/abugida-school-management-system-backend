@@ -14,6 +14,7 @@
 const db                    = require('../config/db');
 const { verifyAccessToken } = require('../utils/jwt');
 const { sendError }         = require('../utils/response');
+const { sendServerError } = require('../utils/errors');
 
 /**
  * Builds the authenticate middleware.
@@ -65,8 +66,7 @@ const buildAuthenticate = ({ allowPasswordChange = false } = {}) => async (req, 
     req.user = { id: user.id, email: user.email, role: user.role };
     next();
   } catch (err) {
-    console.error('authenticate error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 

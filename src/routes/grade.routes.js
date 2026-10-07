@@ -9,6 +9,7 @@ const {
 } = require('../controllers/grade.controller');
 const { authenticate }              = require('../middleware/auth.middleware');
 const { adminOnly, teacherOrAdmin, authorize } = require('../middleware/role.middleware');
+const { requireStudentAccess } = require('../middleware/studentAccess.middleware');
 
 router.use(authenticate);
 
@@ -18,6 +19,6 @@ router.get ('/exams', teacherOrAdmin, getExams);
 
 // Grades
 router.post('/',                        teacherOrAdmin, enterGrades);
-router.get ('/report-card/:studentId',  authorize('admin','teacher','student','parent'), getReportCard);
+router.get ('/report-card/:studentId',  authorize('admin','teacher','student','parent'), requireStudentAccess('studentId'), getReportCard);
 
 module.exports = router;

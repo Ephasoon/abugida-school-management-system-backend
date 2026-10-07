@@ -12,6 +12,7 @@
 const db            = require('../config/db');
 const { sendSuccess,
         sendError } = require('../utils/response');
+const { sendServerError } = require('../utils/errors');
 
 // Days and periods config
 const DAYS    = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -88,8 +89,7 @@ const createSlot = async (req, res) => {
     return sendSuccess(res, rows[0], `Timetable slot created for ${day} period ${period}.`, 201);
 
   } catch (err) {
-    console.error('createSlot error:', err);
-    return sendError(res, 'Server error while creating timetable slot.', 500);
+    return sendServerError(res, err, 'Server error while creating timetable slot.');
   }
 };
 
@@ -153,8 +153,7 @@ const getClassTimetable = async (req, res) => {
     }, `Timetable for ${classRows[0].name}.`);
 
   } catch (err) {
-    console.error('getClassTimetable error:', err);
-    return sendError(res, 'Server error while fetching timetable.', 500);
+    return sendServerError(res, err, 'Server error while fetching timetable.');
   }
 };
 
@@ -202,8 +201,7 @@ const getTeacherTimetable = async (req, res) => {
     }, `Teacher schedule loaded.`);
 
   } catch (err) {
-    console.error('getTeacherTimetable error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -232,8 +230,7 @@ const updateSlot = async (req, res) => {
     return sendSuccess(res, rows[0], 'Timetable slot updated.');
 
   } catch (err) {
-    console.error('updateSlot error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -248,8 +245,7 @@ const deleteSlot = async (req, res) => {
     if (!rows[0]) return sendError(res, 'Slot not found.', 404);
     return sendSuccess(res, null, 'Timetable slot removed.');
   } catch (err) {
-    console.error('deleteSlot error:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -267,7 +263,7 @@ const getClasses = async (req, res) => {
     );
     return sendSuccess(res, rows, `${rows.length} class(es) found.`);
   } catch (err) {
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -280,7 +276,7 @@ const getSubjects = async (req, res) => {
     );
     return sendSuccess(res, rows, `${rows.length} subject(s) found.`);
   } catch (err) {
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 

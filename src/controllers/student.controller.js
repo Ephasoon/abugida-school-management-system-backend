@@ -12,6 +12,7 @@
 const db                     = require('../config/db');
 const { sendSuccess,
         sendError }          = require('../utils/response');
+const { sendServerError } = require('../utils/errors');
 const { parsePagination } = require('../utils/pagination');
 const { setUserActive }   = require('../utils/sessions');
 
@@ -107,8 +108,7 @@ const createStudent = async (req, res) => {
     return sendSuccess(res, rows[0], `Student ${student_number} registered successfully.`, 201);
 
   } catch (err) {
-    console.error('createStudent error:', err);
-    return sendError(res, 'Server error while registering student.', 500);
+    return sendServerError(res, err, 'Server error while registering student.');
   }
 };
 
@@ -209,8 +209,7 @@ const getStudents = async (req, res) => {
     }, `Found ${total} student(s).`);
 
   } catch (err) {
-    console.error('getStudents error:', err);
-    return sendError(res, 'Server error while fetching students.', 500);
+    return sendServerError(res, err, 'Server error while fetching students.');
   }
 };
 
@@ -261,8 +260,7 @@ const getStudentById = async (req, res) => {
     return sendSuccess(res, student, 'Student profile retrieved.');
 
   } catch (err) {
-    console.error('getStudentById error:', err);
-    return sendError(res, 'Server error while fetching student.', 500);
+    return sendServerError(res, err, 'Server error while fetching student.');
   }
 };
 
@@ -334,8 +332,7 @@ const updateStudent = async (req, res) => {
     return sendSuccess(res, rows[0], 'Student updated successfully.');
 
   } catch (err) {
-    console.error('updateStudent error:', err);
-    return sendError(res, 'Server error while updating student.', 500);
+    return sendServerError(res, err, 'Server error while updating student.');
   }
 };
 
@@ -372,8 +369,7 @@ const archiveStudent = async (req, res) => {
     );
 
   } catch (err) {
-    console.error('archiveStudent error:', err);
-    return sendError(res, 'Server error while archiving student.', 500);
+    return sendServerError(res, err, 'Server error while archiving student.');
   }
 };
 
@@ -437,8 +433,7 @@ const getStudentSummary = async (req, res) => {
     }, 'Student summary retrieved.');
 
   } catch (err) {
-    console.error('getStudentSummary error:', err);
-    return sendError(res, 'Server error while fetching student summary.', 500);
+    return sendServerError(res, err, 'Server error while fetching student summary.');
   }
 };
 

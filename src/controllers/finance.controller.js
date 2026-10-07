@@ -3,6 +3,7 @@
 
 const db            = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
+const { sendServerError } = require('../utils/errors');
 const { parsePagination } = require('../utils/pagination');
 
 // Helper: get current academic year
@@ -82,8 +83,7 @@ const recordPayment = async (req, res) => {
       `Payment recorded. Receipt: ${receipt_number}`, 201);
 
   } catch (err) {
-    console.error('recordPayment:', err.message);
-    return sendError(res, 'Server error: ' + err.message, 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -125,8 +125,7 @@ const getPayments = async (req, res) => {
     }, `Found ${rows.length} payment(s).`);
 
   } catch (err) {
-    console.error('getPayments:', err.message);
-    return sendError(res, 'Server error: ' + err.message, 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -175,8 +174,7 @@ const getFinanceSummary = async (req, res) => {
     }, 'Finance summary retrieved.');
 
   } catch (err) {
-    console.error('getFinanceSummary:', err.message);
-    return sendError(res, 'Server error: ' + err.message, 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -207,8 +205,7 @@ const getStudentBalance = async (req, res) => {
     }, 'Student balance retrieved.');
 
   } catch (err) {
-    console.error('getStudentBalance:', err.message);
-    return sendError(res, 'Server error: ' + err.message, 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -228,7 +225,7 @@ const getUnpaidStudents = async (req, res) => {
     );
     return sendSuccess(res, rows, `${rows.length} student(s) with outstanding balance.`);
   } catch (err) {
-    return sendError(res, 'Server error: ' + err.message, 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 

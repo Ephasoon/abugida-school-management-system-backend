@@ -15,6 +15,7 @@
 const db            = require('../config/db');
 const { sendSuccess,
         sendError } = require('../utils/response');
+const { sendServerError } = require('../utils/errors');
 
 
 // ── Security: verify parent owns this child ───────────────────
@@ -46,7 +47,7 @@ const getParentProfile = async (req, res) => {
     if (!rows[0]) return sendError(res, 'Parent profile not found.', 404);
     return sendSuccess(res, rows[0], 'Profile retrieved.');
   } catch (err) {
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -70,7 +71,7 @@ const getChildren = async (req, res) => {
     );
     return sendSuccess(res, rows, `${rows.length} child(ren) found.`);
   } catch (err) {
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -126,8 +127,7 @@ const getChildSummary = async (req, res) => {
       fees:          fees[0],
     }, 'Summary retrieved.');
   } catch (err) {
-    console.error('getChildSummary:', err);
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -169,7 +169,7 @@ const getChildGrades = async (req, res) => {
       by_subject: Object.values(bySubject),
     }, 'Grades retrieved.');
   } catch (err) {
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -209,7 +209,7 @@ const getChildAttendance = async (req, res) => {
 
     return sendSuccess(res, { overall: overall[0], monthly, recent }, 'Attendance retrieved.');
   } catch (err) {
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -241,7 +241,7 @@ const getChildFees = async (req, res) => {
       payments: rows,
     }, 'Fees retrieved.');
   } catch (err) {
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -279,7 +279,7 @@ const getChildTimetable = async (req, res) => {
 
     return sendSuccess(res, { by_day: byDay }, 'Timetable retrieved.');
   } catch (err) {
-    return sendError(res, 'Server error.', 500);
+    return sendServerError(res, err, 'Server error.');
   }
 };
 

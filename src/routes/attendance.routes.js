@@ -16,6 +16,7 @@ const {
 }              = require('../controllers/attendance.controller');
 const { authenticate }                   = require('../middleware/auth.middleware');
 const { adminOnly, teacherOrAdmin, authorize } = require('../middleware/role.middleware');
+const { requireStudentAccess } = require('../middleware/studentAccess.middleware');
 
 router.use(authenticate);
 
@@ -26,7 +27,7 @@ router.post('/',                        teacherOrAdmin,  markAttendance);
 router.put('/:id',                      adminOnly,       updateAttendance);
 
 // Student's own attendance history (all roles)
-router.get('/student/:studentId',       authorize('admin','teacher','student','parent'), getStudentAttendance);
+router.get('/student/:studentId',       authorize('admin','teacher','student','parent'), requireStudentAccess('studentId'), getStudentAttendance);
 
 // Monthly class report (teachers + admins)
 router.get('/report/:classId',          teacherOrAdmin,  getClassReport);
