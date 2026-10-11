@@ -23,7 +23,7 @@ const CAPTURE = `window.__dl = []; HTMLAnchorElement.prototype.click = function 
 }; true`;
 
 (async () => {
-  const { proc, wsUrl } = await launch(); const b = new Browser(wsUrl); await b.connect();
+  const { close, wsUrl } = await launch(); const b = new Browser(wsUrl); await b.connect();
   try {
     // ── 1. Parent portal on the shared api.js ───────────────────
     console.log('== 1. Parent portal uses shared api.js');
@@ -116,5 +116,5 @@ const CAPTURE = `window.__dl = []; HTMLAnchorElement.prototype.click = function 
     ok(await A.eval(`[...document.querySelectorAll('.panel')].find(x => x.innerText.includes('Attendance'))?.innerText.includes('No attendance')`), 'student without records: "No attendance yet"');
     ok(A.errors.length === 0, 'no JS errors for admin', A.errors.slice(0, 2).join(' | '));
   } catch (e) { fail++; console.log('  FAIL  harness error:', e.message); }
-  finally { console.log(`\nPASS=${pass} FAIL=${fail}`); proc.kill(); process.exit(0); }
+  finally { console.log(`\nPASS=${pass} FAIL=${fail}`); await close(); process.exit(0); }
 })();

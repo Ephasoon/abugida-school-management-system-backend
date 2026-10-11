@@ -24,7 +24,8 @@ write the real `asms` database. Do not remove these guards.
   `FRONTEND_DIR`.
 - Microsoft Edge for the browser suites (g5, g5b, g6, g9). Set `EDGE_PATH` if
   it isn't in the default location.
-- Ports 3100, 5599 and 9333 free. The live server on 3000 is not touched.
+- Ports 3100, 5599 and 9333 free. The runner stops with a message if any is in
+  use. The live server on 3000 is not touched.
 
 ## Run
 
@@ -67,7 +68,7 @@ cmd.exe is usually WSL's. Set `GIT_BASH` if Git is installed somewhere unusual.
 | `guard.sh`, `tdb.js` | Scratch-DB guard, and the guarded database pool |
 | `srv.sh` | Start or stop the test server on :3100 |
 | `static.js` | Serves `asms-frontend` on :5599, pointing `config.js` at :3100 |
-| `cdp.js` | Minimal DevTools client for headless Edge |
+| `cdp.js` | Minimal DevTools client for headless Edge (temporary profile, page-load checks) |
 | `token.js` | Signs an access token for a user (`node tests/token.js <email>`) |
 | `mkstudents.js` | Creates throwaway students for g2b. The runner calls it |
 | `g3fix.js` → `g3.json` | One-time fixture (teachers, students, parent, classes) used by g3, g4, g4b and g7–g12. `g3.json` holds the ids in the current scratch DB. Re-run `g3fix.js` and save its output to `g3.json` only for a fresh scratch DB |
@@ -78,6 +79,19 @@ cmd.exe is usually WSL's. Set `GIT_BASH` if Git is installed somewhere unusual.
 
 Run one-time helpers through the guard, for example
 `bash tests/guard.sh node tests/setpw.js admin@asms.et Admin@1234`.
+
+## Browser suites
+
+- Each browser suite starts Edge with a new, empty profile in the system temp
+  folder (`asms-test-edge-*`) and deletes it when it finishes, even if the
+  suite crashes. Edge may copy browsing data from your normal profile into a
+  new profile at start, so nothing is kept between runs.
+- `goto()` waits for the page's load event (up to 15 s; set
+  `PAGE_LOAD_TIMEOUT` in ms to change it) and checks that the tab is on the
+  test site. If a page doesn't load, the error names the URL, the reason (for
+  example `net::ERR_CONNECTION_REFUSED`), what the tab is showing, and recent
+  network and page errors.
+- When a suite fails, the runner prints the last lines of its `.out` file.
 
 ## Notes
 

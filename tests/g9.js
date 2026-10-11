@@ -43,7 +43,7 @@ const tag = String(Date.now()).slice(-6);
       'analytics overview: outstanding - credit = net = expected - collected', `${ov.total_outstanding} - ${ov.total_credit} = ${ov.net_balance}`);
 
     // Browser: the existing finance page now shows 1,000
-    const { proc, wsUrl } = await launch(); const b = new Browser(wsUrl); await b.connect();
+    const { close, wsUrl } = await launch(); const b = new Browser(wsUrl); await b.connect();
     try {
       const pg = await b.newPage();
       await pg.goto('http://localhost:5599/login.html', 800);
@@ -53,7 +53,7 @@ const tag = String(Date.now()).slice(-6);
       await pg.goto('http://localhost:5599/finance.html', 2500);
       const shown = await pg.eval(`document.getElementById('totalOutstanding').textContent.trim()`);
       ok(shown === '1,000', 'finance.html shows Outstanding 1,000 (no frontend change)', shown);
-    } finally { proc.kill(); }
+    } finally { await close(); }
   } finally {
     await call(A, 'POST', `/academic-years/${origYear.id}/activate`);
     ok((await call(A, 'GET', '/academic-years/current')).body.data.id === origYear.id, 'original academic year re-activated');
