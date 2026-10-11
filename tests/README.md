@@ -1,0 +1,88 @@
+# ASMS backend tests
+
+End-to-end suites from Phase 0 and Phase 1. They start the backend on port
+**3100** against the scratch database **`asms_phase0_test`** and call the real
+API. The browser suites also serve `asms-frontend` on port **5599** and drive
+headless Edge.
+
+## Safety: scratch database only
+
+Everything goes through `guard.sh`. It forces `DB_NAME=asms_phase0_test` and
+aborts if the name is anything else. `tdb.js`, the only direct database
+connection the tests use, checks the same thing. The suites never read or
+write the real `asms` database. Do not remove these guards.
+
+## Requirements
+
+- Windows with **Git Bash** (the scripts use `cygpath`, `netstat` and
+  `powershell`).
+- PostgreSQL with `asms_phase0_test`: all migrations applied, the Phase 0
+  fixtures loaded, and the admin password `Admin@1234`.
+- `.env` in the backend root. Only its credentials are used; `DB_NAME` is
+  always overridden.
+- `asms-frontend` checked out next to this repo (`../asms-frontend`), or set
+  `FRONTEND_DIR`.
+- Microsoft Edge for the browser suites (g5, g5b, g6, g9). Set `EDGE_PATH` if
+  it isn't in the default location.
+- Ports 3100, 5599 and 9333 free. The live server on 3000 is not touched.
+
+## Run
+
+```
+npm run test:all            # every suite, from cmd, PowerShell or Git Bash
+npm run test:all -- g7 g8   # only some suites
+bash tests/regress.sh g3    # directly from Git Bash
+```
+
+The runner restarts the server for each suite and prints one line per suite.
+It exits 1 if any suite fails or crashes. Full output is in `tests/<suite>.out`.
+`npm run test:all` uses Git Bash (`tests/run.js`), because plain `bash` from
+cmd.exe is usually WSL's. Set `GIT_BASH` if Git is installed somewhere unusual.
+
+## Suites
+
+| Suite | Covers |
+|---|---|
+| g1 | Phase 0 Group 1: SQL injection via `term`, pagination limits |
+| g2 | Phase 0 Group 2: login, 15-minute token, refresh and logout, temporary passwords, must-change-password, immediate deactivation |
+| g2b | Phase 0 Group 2: archive, suspension and graduation cut off student logins; old refresh tokens rejected; CORS; login rate limit |
+| g3 | Phase 0 Group 3: student/parent record access, finance admin-only, private documents, grade writes limited to assignments, generic 500s with logged error id |
+| g4 | Phase 0 Group 4: exam schedules, finance categories, number sequences, score limits, Amharic download names, dates as YYYY-MM-DD |
+| g4b | Teacher assignments: assign, list, remove |
+| g5 | Phase 0 Group 5 (browser): page smoke test, XSS escaping, assignment screen, one-time password, must-change redirect, refresh-on-401, logout, 127.0.0.1 origin |
+| g5b | Parent portal (browser) |
+| g6 | Phase 0 follow-ups (browser): parent portal on `api.js`, downloads, finance UI hidden from teachers, attendance card |
+| g7 | Phase 1 Group B: role × endpoint matrix, list scoping |
+| g8 | Phase 1 Group C: school-created accounts |
+| g9 | Phase 1 Group D: finance outstanding, parent fees, teacher dashboard |
+| g10 | Phase 1 Addition 1: one rule for creating exams |
+| g11 | Phase 1 Addition 2: deactivate and reactivate a principal |
+| g12 | Phase 1 Decisions 1, 2, 4: existing-parent login, parent (de)activation, outstanding |
+
+## Helpers and fixtures
+
+| File | Purpose |
+|---|---|
+| `regress.sh`, `run.js` | Runner, and the npm entry point for it |
+| `guard.sh`, `tdb.js` | Scratch-DB guard, and the guarded database pool |
+| `srv.sh` | Start or stop the test server on :3100 |
+| `static.js` | Serves `asms-frontend` on :5599, pointing `config.js` at :3100 |
+| `cdp.js` | Minimal DevTools client for headless Edge |
+| `token.js` | Signs an access token for a user (`node tests/token.js <email>`) |
+| `mkstudents.js` | Creates throwaway students for g2b. The runner calls it |
+| `g3fix.js` → `g3.json` | One-time fixture (teachers, students, parent, classes) used by g3, g4, g4b and g7–g12. `g3.json` holds the ids in the current scratch DB. Re-run `g3fix.js` and save its output to `g3.json` only for a fresh scratch DB |
+| `fixture.js` | One-time fixture: the student with grades, payments and attendance used by g1, g4 and g6 |
+| `setpw.js` | Set a user's password in the scratch DB (`node tests/setpw.js <email> <password>`) |
+| `fresh.js` | Optional: runs every migration in a temporary `fresh_install` schema, then drops it |
+| `cleanup_uploads.js` | Optional: deletes files that tests uploaded under `uploads/documents` |
+
+Run one-time helpers through the guard, for example
+`bash tests/guard.sh node tests/setpw.js admin@asms.et Admin@1234`.
+
+## Notes
+
+- The suites add data to the scratch DB (users, exams, payments). They are
+  written to be re-run, but reset the scratch DB from a backup if it gets
+  cluttered.
+- g9 checks the teacher dashboard's timetable for today's weekday. On Sunday,
+  which isn't a school day, it checks that today's list is empty instead.

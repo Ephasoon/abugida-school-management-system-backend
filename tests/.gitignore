@@ -1,0 +1,11 @@
+# Files the suites create while running
+*.out
+*.log
+*.winpid
+r.json
+p.pdf
+sample.pdf
+የተማሪ ሰነድ.pdf
+students.json
+jar/
+edge-profile/
