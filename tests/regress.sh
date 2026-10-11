@@ -4,7 +4,8 @@
 S="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; WS="$(cygpath -m "$S")"   # this tests/ folder (bash path, Windows path)
 cd $S || exit 1
 [ $# -eq 0 ] && set -- g1 g2 g2b g3 g4 g4b g5 g5b g6 g7 g8 g9 g10 g11 g12
-if netstat -ano | grep -qE ":(3100|5599) .*LISTEN"; then echo "port 3100 or 5599 busy, abort"; exit 1; fi
+busy=$(netstat -ano | grep -oE ":(3100|5599|9333) .*LISTEN.*" | sort -u)
+if [ -n "$busy" ]; then echo "test port(s) already in use, abort:"; echo "$busy"; exit 1; fi
 export CORS_ORIGINS="http://localhost:5599,http://127.0.0.1:5599"
 $S/guard.sh node $S/mkstudents.js | tail -1 > $S/students.json
 node static.js > static.log 2>&1 &
@@ -33,5 +34,8 @@ powershell -NoProfile -Command "Stop-Process -Id $(cat $S/static.winpid) -ErrorA
 sleep 1
 netstat -ano | grep -E ":(3100|5599|9333) .*LISTEN" || echo "test ports closed"
 
-if [ ${#failed[@]} -gt 0 ]; then echo "FAILED: ${failed[*]} (details in tests/<suite>.out)"; exit 1; fi
+if [ ${#failed[@]} -gt 0 ]; then
+  for t in "${failed[@]}"; do echo; echo "----- $t.out (last 15 lines)"; tail -15 "$S/$t.out"; done
+  echo; echo "FAILED: ${failed[*]} (full output in tests/<suite>.out)"; exit 1
+fi
 echo "ALL SUITES PASSED ($#)"

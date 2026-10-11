@@ -23,7 +23,7 @@ async function uiLogin(page, base, email, password) {
 }
 
 (async () => {
-  const { proc, wsUrl } = await launch();
+  const { close, wsUrl } = await launch();
   const b = new Browser(wsUrl); await b.connect();
   try {
     // ── 1. Every page loads as admin without JS errors ──────────
@@ -166,7 +166,7 @@ async function uiLogin(page, base, email, password) {
     fail++; console.log('  FAIL  harness error:', e.message);
   } finally {
     console.log(`\nPASS=${pass} FAIL=${fail}`);
-    proc.kill();
+    await close();
     process.exit(0);
   }
 })();

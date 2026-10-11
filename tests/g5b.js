@@ -2,7 +2,7 @@
 const { launch, Browser, sleep } = require('./cdp');
 const G = require('./g3.json');
 (async () => {
-  const { proc, wsUrl } = await launch(); const b = new Browser(wsUrl); await b.connect();
+  const { close, wsUrl } = await launch(); const b = new Browser(wsUrl); await b.connect();
   let ok = true; const log = (c, m, x = '') => { ok = ok && c; console.log(`  ${c ? 'PASS' : 'FAIL'}  ${m} ${x}`); };
   try {
     const P = await b.newPage();
@@ -15,5 +15,5 @@ const G = require('./g3.json');
     log(P.errors.length === 0, 'no JS errors across all tabs', P.errors.slice(0, 2).join(' | '));
     log(await P.eval(`window.ASMS_CONFIG.API_BASE`) === 'http://localhost:3100/api', 'uses API base from config.js');
   } catch (e) { ok = false; console.log('  FAIL harness:', e.message); }
-  console.log(ok ? 'parent portal: ALL PASS' : 'parent portal: FAILURES'); proc.kill(); process.exit(0);
+  console.log(ok ? 'parent portal: ALL PASS' : 'parent portal: FAILURES'); await close(); process.exit(0);
 })();
