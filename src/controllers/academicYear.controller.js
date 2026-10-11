@@ -16,6 +16,22 @@ const { sendSuccess,
 const { sendServerError } = require('../utils/errors');
 const { setUserActive } = require('../utils/sessions');
 
+// Dates are 'YYYY-MM-DD' strings (see config/db.js), so they compare as text.
+const isIsoDate = (d) =>
+  /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(Date.parse(d)) &&
+  new Date(d).toISOString().slice(0, 10) === d;
+
+// Error message when the dates are invalid or out of order, else null
+const dateRangeError = (start_date, end_date) => {
+  if (!isIsoDate(start_date) || !isIsoDate(end_date)) {
+    return 'start_date and end_date must be valid dates in format YYYY-MM-DD.';
+  }
+  if (end_date <= start_date) {
+    return `end_date (${end_date}) must be after start_date (${start_date}).`;
+  }
+  return null;
+};
+
 
 // ── GET /api/academic-years ───────────────────────────────────
 const getAcademicYears = async (req, res) => {
@@ -71,6 +87,9 @@ const createAcademicYear = async (req, res) => {
       return sendError(res, 'name must be in format YYYY/YYYY (e.g. 2025/2026).', 400);
     }
 
+    const dateError = dateRangeError(start_date, end_date);
+    if (dateError) return sendError(res, dateError, 400);
+
     const { rows: existing } = await db.query(
       'SELECT id FROM academic_years WHERE name = $1', [name]
     );
@@ -95,6 +114,17 @@ const updateAcademicYear = async (req, res) => {
   try {
     const { id } = req.params;
     const { name, start_date, end_date } = req.body;
+
+    // ::text comparison: a malformed id simply matches nothing (404, not 500)
+    const { rows: current } = await db.query(
+      'SELECT start_date, end_date FROM academic_years WHERE id::text = $1', [id]
+    );
+    if (!current[0]) return sendError(res, 'Academic year not found.', 404);
+
+    // Check the dates the row will have after the update
+    const dateError = dateRangeError(start_date ?? current[0].start_date,
+                                     end_date   ?? current[0].end_date);
+    if (dateError) return sendError(res, dateError, 400);
 
     const { rows } = await db.query(
       `UPDATE academic_years SET
