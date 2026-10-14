@@ -17,6 +17,12 @@ const { parsePagination } = require('../utils/pagination');
 const { setUserActive }   = require('../utils/sessions');
 const { readAmharicNames, amharicSet, STUDENT_AM } = require('../utils/amharicNames');
 const { scopeCondition } = require('../utils/scope');
+const { isUuid }         = require('../middleware/validateIds.middleware');
+
+const STUDENT_STATUSES = ['active', 'graduated', 'withdrawn', 'suspended'];
+// Optional text fields and their lengths: an update clears them with '' or null
+const OPTIONAL_TEXT = { fathers_name: 100, phone: 20, address: 2000, region: 100, woreda: 100, previous_school: 255, notes: 5000 };
+const isIsoDate = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v)) && new Date(v).toISOString().slice(0, 10) === v;
 
 // ── Helper: Generate Student Number ─────────────────────────
 // Format: ASMS-<year>-<NNN>. NNN comes from student_number_seq (migration 014),
@@ -60,14 +66,9 @@ const createStudent = async (req, res) => {
     const am = readAmharicNames(req.body, STUDENT_AM);
     if (am.error) return sendError(res, am.error, 400);
 
-    // 2. Validate class exists (if provided)
-    if (class_id) {
-      const { rows } = await db.query(
-        'SELECT id FROM classes WHERE id = $1', [class_id]
-      );
-      if (!rows[0]) {
-        return sendError(res, 'class_id does not exist.', 400);
-      }
+    // 2. class_id exists: validateBodyIds on the route. A bad date is a 400, not a 500
+    if (date_of_birth && !isIsoDate(date_of_birth)) {
+      return sendError(res, 'date_of_birth must be a date (YYYY-MM-DD).', 400);
     }
 
     // 3. Generate unique student number
@@ -133,14 +134,26 @@ const getStudents = async (req, res) => {
     if (pg.error) return sendError(res, pg.error, 400);
     const { page, limit, offset } = pg;
 
+    // Bad filters are the client's mistake (400), never an enum or uuid error (500)
+    if (!['all', ...STUDENT_STATUSES].includes(status)) {
+      return sendError(res, `status must be one of: all, ${STUDENT_STATUSES.join(', ')}.`, 400);
+    }
+    if (gender && !['male', 'female'].includes(gender)) return sendError(res, 'gender must be male or female.', 400);
+    if (class_id) {
+      const known = isUuid(class_id) && (await db.query('SELECT 1 FROM classes WHERE id = $1', [class_id])).rows.length;
+      if (!known) return sendError(res, 'class_id does not exist.', 400, { field: 'class_id' });
+    }
+
     // Build dynamic WHERE clause
     const conditions = [];
     const params     = [];
     let   paramIdx   = 1;
 
-    // Always filter by status
-    conditions.push(`s.status = $${paramIdx++}`);
-    params.push(status);
+    // Status: one, or every status with status=all
+    if (status !== 'all') {
+      conditions.push(`s.status = $${paramIdx++}`);
+      params.push(status);
+    }
 
     // Search by name or student number
     if (search.trim()) {
@@ -244,7 +257,8 @@ const getStudentById = async (req, res) => {
          c.grade_level,
          c.section,
          c.academic_year_id,
-         ay.name       AS academic_year
+         ay.name       AS academic_year,
+         ay.end_date   AS academic_year_end
        FROM students s
        LEFT JOIN classes       c  ON c.id  = s.class_id
        LEFT JOIN academic_years ay ON ay.id = c.academic_year_id
@@ -299,48 +313,49 @@ const updateStudent = async (req, res) => {
       return sendError(res, 'Student not found.', 404);
     }
 
-    const {
-      first_name, last_name, fathers_name,
-      date_of_birth, gender, class_id,
-      phone, address, region, woreda,
-      previous_school, status, notes,
-    } = req.body;
+    // Only the fields sent change. first_name / last_name cannot be emptied;
+    // the optional fields (incl. class_id and date_of_birth) are cleared with
+    // '' or null. class_id itself is checked by validateBodyIds on the route.
+    const b = req.body || {};
+    const sent = (k) => Object.prototype.hasOwnProperty.call(b, k);
+    const values = {};
+    for (const k of ['first_name', 'last_name']) {
+      if (!sent(k)) continue;
+      if (typeof b[k] !== 'string' || !b[k].trim()) return sendError(res, `${k} cannot be empty.`, 400);
+      if (b[k].trim().length > 100) return sendError(res, `${k} must be at most 100 characters.`, 400);
+      values[k] = b[k].trim();
+    }
+    const opt = readAmharicNames(b, OPTIONAL_TEXT); // text, length, '' / null clear
+    if (opt.error) return sendError(res, opt.error, 400);
+    Object.assign(values, opt.values);
+    if (sent('gender')) {
+      if (!['male', 'female'].includes(b.gender)) return sendError(res, 'gender must be "male" or "female".', 400);
+      values.gender = b.gender;
+    }
+    if (sent('status')) {
+      if (!STUDENT_STATUSES.includes(b.status)) return sendError(res, `status must be one of: ${STUDENT_STATUSES.join(', ')}.`, 400);
+      values.status = b.status;
+    }
+    if (sent('date_of_birth')) {
+      if (b.date_of_birth && !isIsoDate(b.date_of_birth)) return sendError(res, 'date_of_birth must be a date (YYYY-MM-DD).', 400);
+      values.date_of_birth = b.date_of_birth || null;
+    }
+    if (sent('class_id')) values.class_id = b.class_id || null;
 
-    const am = readAmharicNames(req.body, STUDENT_AM);
+    const am = readAmharicNames(b, STUDENT_AM);
     if (am.error) return sendError(res, am.error, 400);
-    const amSet = amharicSet(am.values, 15);
+    Object.assign(values, am.values);
 
+    const set = amharicSet(values, 2); // "field = $n" for each value sent
     const { rows } = await db.query(
-      `UPDATE students SET
-        first_name      = COALESCE($1,  first_name),
-        last_name       = COALESCE($2,  last_name),
-        fathers_name    = COALESCE($3,  fathers_name),
-        date_of_birth   = COALESCE($4,  date_of_birth),
-        gender          = COALESCE($5,  gender),
-        class_id        = COALESCE($6,  class_id),
-        phone           = COALESCE($7,  phone),
-        address         = COALESCE($8,  address),
-        region          = COALESCE($9,  region),
-        woreda          = COALESCE($10, woreda),
-        previous_school = COALESCE($11, previous_school),
-        status          = COALESCE($12, status),
-        notes           = COALESCE($13, notes),
-        updated_at      = NOW()${amSet.sql}
-      WHERE id = $14
-      RETURNING *`,
-      [
-        first_name, last_name, fathers_name,
-        date_of_birth, gender, class_id,
-        phone, address, region, woreda,
-        previous_school, status, notes,
-        id, ...amSet.params
-      ]
+      `UPDATE students SET updated_at = NOW()${set.sql} WHERE id = $1 RETURNING *`,
+      [id, ...set.params]
     );
 
     // A status change syncs the login: any status other than 'active' disables
     // it, back to 'active' enables it. An unchanged status leaves it alone, so
     // editing a student doesn't undo PUT /accounts/students/:id/status.
-    if (status && status !== existing.rows[0].status) {
+    if (values.status && values.status !== existing.rows[0].status) {
       await setUserActive(rows[0].user_id, rows[0].status === 'active');
     }
 

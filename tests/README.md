@@ -69,6 +69,7 @@ cmd.exe is usually WSL's. Set `GIT_BASH` if Git is installed somewhere unusual.
 | g17 | Phase 2 G10: malformed and unknown ids in request bodies on every write route answer 400 "<field> does not exist." (array entries named, e.g. `grades[1].student_id`), nothing written, no file left behind; missing ids keep the route's own message; 403s first; refused upload file type 400 |
 | g18 | Phase 2 G7: parents of one student in `GET /students/:id` (relationship, primary contact first, then by name, Amharic name) for admin and principal; teacher of the class as before, other teachers 403; no parents = [] |
 | g19 | Phase 2 G9: backend Ethiopian date converter against the shared vectors (same file as asms-web, every day 1900–2100); student and teacher ID cards print the Amharic name and Ethiopian dates (text extracted with pdfjs-dist), Noto Sans Ethiopic embedded, no Helvetica; report card still renders |
+| g20 | Phase 2 M3: students list (status=all, filters combine, bad status / gender / class_id 400, teachers own classes only, paging) and student edit (only fields sent change, optional fields incl. class and birth date cleared, names not emptied, bad values 400, audited), archive |
 | w1 | asms-web: type check, lint and unit tests (`npm test`: Vitest) |
 | w2 | asms-web: browser tests (Playwright in Edge) of the built app on :5600 against this test backend: login and sessions, menus per role, Ethiopian date picker, admin account screens |
 
