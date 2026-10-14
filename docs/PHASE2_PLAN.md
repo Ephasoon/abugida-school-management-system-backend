@@ -1,6 +1,6 @@
 # ASMS Phase 2 — React frontend (plan)
 
-*Draft 2026-10-14, revision 3 (answers to N1–N8 included) · planning only, nothing built yet · awaiting approval*
+*Draft 2026-10-14, revision 4 (answers to N1–N14 included) · planning only, nothing built yet · awaiting approval*
 
 Sources:
 - `docs/PERMISSIONS.md` (who may do what)
@@ -27,13 +27,19 @@ Sources:
 | D12 | Switch-over | You sign off M10 after a school admin has tried it. Then the old frontend is unlinked and its repo archived. |
 | D13 | School model | Two semesters, scores out of 100 with totals, averages and ranks (no GPA or letters), and monthly fees. These backend changes are planned in §5 and done before the grades and finance milestones. |
 | D14 (N1) | Semester 2 start | Default **Yekatit 1** of the academic year (e.g. 2019 E.C. → 2027-02-08), editable per academic year. Undated `term2` exams migrate to **semester 2**. |
-| D15 (N2) | Subject score | **Sum of the assessment scores.** Their max scores add up to 100 per subject per semester. Warn when they would exceed 100; show "incomplete" while below 100. |
+| D15 (N2) | Subject score | **Sum of the assessment scores.** Their max scores add up to 100 per subject per semester. **Refused** (400) when they would exceed 100 (D23); "incomplete" while below 100. |
 | D16 (N3) | Ranking | Only students with a score in **every subject** of the class for that semester are ranked; others show "not ranked (incomplete)". **Ties: 1, 2, 2, 4.** |
 | D17 (N4) | Pass mark | Pass = **yearly average ≥ 50**, stored as a **school setting** the admin can change. No PASS/FAIL is shown until the setting exists. |
 | D18 (N5) | Score bands | 90–100, 80–89, 70–79, 60–69, 50–59, below 50. |
 | D19 (N6) | Months charged | Monthly fees default to **10 months, Meskerem–Sene**. Each fee structure can choose its own months. |
 | D20 (N7) | Old term payments | Kept as **legacy charges** (no month), not spread over months. Balances stay exactly the same. |
 | D21 (N8) | Parent fees before M8 | The parent portal keeps the **current fee view until M8**, then switches to the monthly view. |
+| D22 (N9) | Discounts | **Percentage or fixed amount**, per student and per fee structure, with a reason: sibling, staff child, scholarship, other. Entered manually by the admin; automatic sibling rules later. |
+| D23 (N10) | Report card extras | Per semester: **days absent**, a **conduct grade A/B/C/D** entered by the homeroom teacher, and a short **homeroom teacher remark**. |
+| D24 (N11) | Real data checks | Take a fresh backup of `asms`, restore it into a separate database (`asms_restore_check`), and run the dry runs there. **Never on `asms` itself.** |
+| D25 (N12) | Max scores over 100 | **Refuse** (400 with a clear message) when a subject's max scores for a semester would exceed 100. |
+| D26 (N13) | Promotion | Wording **"Promoted / Not promoted"** (ተዛውሯል / አልተዛወረም). For grades with regional or national exams, the admin records promotion **manually**; which grades those are is a school setting. |
+| D27 (N14) | Fee due day | Default **the 10th** of each Ethiopian month, changeable per fee structure. |
 
 ---
 
@@ -144,7 +150,9 @@ export const CAPABILITIES = {
   'timetable.own':        ['teacher', 'parent'],
   'accounts.manage':      ['admin'],
   'audit.view':           ['admin'],
-  'settings.manage':      ['admin'],                           // school settings (pass mark)
+  'settings.manage':      ['admin'],                           // school settings (pass mark, manual promotion grades)
+  'conduct.enter':        ['admin', 'teacher'],                // teacher: own homeroom class only (backend checks)
+  'promotion.decide':     ['admin'],
   'idcards.print':        ['admin'],
   'password.own':         ['admin', 'principal', 'teacher', 'parent', 'student'],
 } as const satisfies Record<string, readonly Role[]>;
@@ -217,7 +225,11 @@ with the Ethiopian school model.
 | Academic years (list, current, stats; "2019 E.C. (2026/2027)") | A, P | `GET /academic-years`, `/current`, `/:id/stats` |
 | Academic years (create, edit, activate, promote; semester dates §5.1) | A | `POST /academic-years`, `PUT /:id`, `POST /:id/activate`, `POST /:id/promote` |
 | Classes and subjects setup | A (P view) | ⚠ G2, G3 |
-| School settings (pass mark) | A (P view) | `GET /settings`, `PUT /settings/:key` (§5.2) |
+| School settings (pass mark, manual promotion grades) | A (P view) | `GET /settings`, `PUT /settings/:key` (§5.2) |
+| Conduct and remarks (per class, per semester) | A, homeroom T (P view) | `GET/PUT /results/class/:classId/conduct` (§5.2) |
+| Promotion decisions (manual grades, overrides) | A | `PUT /results/class/:classId/promotion`, `PUT /results/student/:studentId/promotion` (§5.2) |
+| Homeroom teacher of a class | A | `PUT /classes/:classId/homeroom` (§5.2) |
+| Discounts | A (P view) | `/finance/discounts` (§5.3) |
 | Fee structures (monthly and one-time) | A (P view) | ⚠ G4, as redesigned in §5.3 |
 | Finance overview, payments, unpaid **per month** | A, P | changed, §5.3 |
 | Record payment (months covered, receipt PDF) | A | changed, §5.3; ⚠ G5 receipt PDF |
@@ -273,8 +285,16 @@ B3 (monthly fees) before M8.**
 **Data safety for every migration below:**
 - It first prints what it will change (row counts per old value) in a
   dry-run mode.
-- It is rehearsed on `asms_phase0_test` and a restored copy of the real
-  backup (never `asms` directly).
+- It is rehearsed on `asms_phase0_test` first.
+- Then the real-data check (D24), each time just before going live:
+  1. Take a fresh `pg_dump` of `asms`. This is read-only for `asms`.
+  2. Restore it into a separate database, `asms_restore_check`, dropped and
+     re-created each time.
+  3. Run the dry run and then the migration there, and report the counts
+     and before/after checks.
+- Scripts that write refuse to run unless `DB_NAME` is `asms_phase0_test`
+  or `asms_restore_check`, like `guard.sh` does today. **Nothing runs on
+  `asms` itself** except the final migration you approve.
 - On `asms` it runs only after you approve, with a fresh `pg_dump` taken
   just before.
 - Old columns are kept read-only for one release, so a rollback is possible,
@@ -346,10 +366,18 @@ and terms. The new rank is per class, year and semester (below).
   (quizzes, assignments, mid, final) have **max scores that add up to 100**,
   e.g. 10 + 10 + 20 + 60. The subject score is the **sum of the scores**. No
   scaling.
-- **Exam create/edit warns** when the subject's max scores for that class
-  and semester would exceed 100. The response carries a warning with the
-  current sum, and the form asks for confirmation. Whether the backend
-  should also **refuse** over 100 is open question N12.
+- **Exam create/edit is refused (D25)** when the subject's max scores for
+  that class and semester would exceed 100. The response is a 400 naming the
+  numbers, e.g. "Mathematics, Grade 9 A, semester 1: max scores would total
+  110 (already 90 + this 20). The limit is 100." This applies to
+  `POST /exam-schedule`, the deprecated `POST /grades/exams` and
+  `PUT /exam-schedule/:id` (changing `max_score`, `semester` or the class).
+  The check runs in `exam.service.js` inside the same transaction, so two
+  teachers saving at once can't pass it together. The form shows the
+  remaining points before saving.
+- Existing exams that already total over 100 (after the B1 migration) are
+  listed in the dry run and left as they are; the results show them as
+  "over 100, check" until the admin fixes them.
 - **"Incomplete"** is shown while the max scores for a subject add up to
   less than 100, or while the student has no score for one of its
   assessments.
@@ -395,12 +423,52 @@ change old results):**
 - **New endpoints:** `GET /settings` (all staff read; the parent portal gets
   the values it needs inside its results data) and `PUT /settings/:key`
   (admin; validated per key: the pass mark is a number from 0 to 100).
-- **No PASS/FAIL is shown** while the setting is missing or empty, or while
-  the student's year is incomplete (not ranked). PASS/FAIL is therefore
+- **No promotion result is shown** while the setting is missing or empty,
+  or while the student's year is incomplete (not ranked). It is therefore
   never shown before B2 is live.
-- PASS/FAIL is shown for the **year** only (semesters show averages and
-  ranks). Whether it is worded "Promoted / Not promoted" is open question
-  N13.
+- It is shown for the **year** only (semesters show averages and ranks),
+  worded **"Promoted / Not promoted"** ("ተዛውሯል / አልተዛወረም") (D26).
+  The code calls it `promotion`, not PASS/FAIL.
+- **Grades with regional or national exams (D26):**
+  - A second setting, `manual_promotion_grades` (a list of grade levels,
+    e.g. `[6, 8, 12]`, empty by default), says which grades these are.
+  - For those grades the pass mark is **not** applied. The admin records
+    each student's promotion manually.
+  - New table `promotion_decisions`: `student_id`, `academic_year_id`,
+    `promoted` (boolean), `note`, `decided_by`, `decided_at`. Unique
+    `(student_id, academic_year_id)`, audited.
+  - New endpoints: `PUT /results/student/:studentId/promotion`
+    `{ academic_year_id, promoted, note? }` (A), and a bulk form per class,
+    `PUT /results/class/:classId/promotion`.
+  - Until the admin decides, the report card shows "Promotion pending". A
+    manual decision is also allowed for other grades, and then overrides
+    the pass mark (e.g. after a re-sit).
+- `POST /academic-years/:id/promote` (moving students to the next grade)
+  uses the same promotion result instead of promoting everyone. How
+  "Not promoted" students are handled there (stay in the same grade level)
+  is shown in the dry run before promoting.
+
+**Report card extras per semester (D23):**
+- **Days absent:** counted from `attendance` rows with status `absent`
+  within the semester's date range (§5.1) and the student's class. `late`
+  and `excused` are shown separately and are not counted as absent (open
+  question N15).
+- **Conduct grade (A/B/C/D) and homeroom remark:**
+  - New table `semester_conduct`: `student_id`, `academic_year_id`,
+    `semester`, `class_id`, `conduct` (enum `A`–`D`), `remark` (up to 300
+    characters, Amharic or English), `entered_by`, `updated_at`. Unique
+    `(student_id, academic_year_id, semester)`.
+  - **Who enters it:** the **homeroom teacher** of the student's class
+    (`classes.homeroom_teacher_id`) and the admin. Principal, parents and
+    students read it on the report card.
+  - This is a new rule for `docs/PERMISSIONS.md`. Today the homeroom column
+    grants nothing. It will grant **only** this: conduct and remark for the
+    homeroom class. It adds no access to other data.
+  - Enforced by a new `requireHomeroom('classId')` middleware next to the
+    existing access checks.
+- **Setting the homeroom teacher** is needed before M5. So this part of G2,
+  `PUT /classes/:classId/homeroom` `{ teacher_id }` (A), moves forward into
+  B2. The rest of G2 (create and edit classes) stays in M7.
 
 **Endpoints (new / changed):**
 
@@ -413,12 +481,22 @@ change old results):**
 | `GET /parent/child/:id/grades`, `/summary` | Pa | results shape instead of GPA/letters |
 | `POST /grades` | A, T | response without `grade_letter` |
 | `GET /analytics/grades` | A, P | score bands (D18): 90–100, 80–89, 70–79, 60–69, 50–59, below 50, by subject score per semester |
-| `GET /settings`, `PUT /settings/:key` (new) | staff read; A write | school settings, starting with `pass_yearly_average` |
+| `GET /settings`, `PUT /settings/:key` (new) | staff read; A write | school settings: `pass_yearly_average` (default 50), `manual_promotion_grades` (default empty) |
+| `GET /results/class/:classId/conduct?academic_year_id=&semester=` (new) | A, P, T (homeroom or own class, read) | conduct + remark per student |
+| `PUT /results/class/:classId/conduct` (new) | A, homeroom T | `{ academic_year_id, semester, entries: [{ student_id, conduct, remark }] }` |
+| `PUT /results/student/:studentId/promotion`, `PUT /results/class/:classId/promotion` (new) | A | manual promotion (D26) |
+| `PUT /classes/:classId/homeroom` (new, part of G2) | A | `{ teacher_id }` |
 
-**Tests:** a new suite with fixed fixtures covers totals, averages, both
-semesters, the yearly figures, ties (1, 2, 2, 4), incomplete students,
-promotion not changing old ranks, and scoping (parent sees only own
-children).
+**Tests:** a new suite with fixed fixtures covers:
+- totals, averages, both semesters, the yearly figures
+- ties (1, 2, 2, 4) and incomplete students
+- moving to the next grade not changing old ranks
+- refusal over 100, including two exams saved at the same time
+- days absent per semester
+- conduct entry: the homeroom teacher may enter it; other teachers and the
+  principal get 403
+- pass mark and manual promotion grades, "Promotion pending"
+- scoping: a parent sees only their own children
 
 ### 5.3 B3 — Monthly fees
 
@@ -436,8 +514,9 @@ simple question):**
 
 | Table | Purpose / columns |
 |---|---|
-| `fee_structures` (changed) | `academic_year_id`, `grade_level` (NULL = all), `category`, **`frequency` (`monthly` \| `one_time`)**, `amount`, **`months SMALLINT[]`** (Ethiopian month numbers the monthly fee is charged for; **default Meskerem–Sene = 1–10** (D19); each fee structure can pick its own months, e.g. transport 1–10, a summer class 11–12; empty for one-time fees), `due_day` (day of the Ethiopian month, monthly) or `due_date` (one-time). `term` dropped. Unique `(academic_year_id, grade_level, category)`. |
-| **`student_charges`** (new) | What a student owes: `student_id`, `academic_year_id`, `fee_structure_id` (nullable for manual charges), `category`, **`eth_month SMALLINT NULL`** (1–13; NULL = one-time), `amount_due`, `discount` + `discount_reason`, `due_date`, `created_by`. Unique `(student_id, fee_structure_id, eth_month)`. Generated for all active students when a fee structure is saved or a student enrols (idempotent); admins can add or waive single charges. |
+| `fee_structures` (changed) | `academic_year_id`, `grade_level` (NULL = all), `category`, **`frequency` (`monthly` \| `one_time`)**, `amount`, **`months SMALLINT[]`** (Ethiopian month numbers the monthly fee is charged for; **default Meskerem–Sene = 1–10** (D19); each fee structure can pick its own months, e.g. transport 1–10, a summer class 11–12; empty for one-time fees), `due_day` (day of the Ethiopian month for monthly fees, **default 10** (D27), 1–30, capped at 5/6 for Pagume) or `due_date` (one-time). `term` dropped. Unique `(academic_year_id, grade_level, category)`. |
+| **`student_charges`** (new) | What a student owes: `student_id`, `academic_year_id`, `fee_structure_id` (nullable for manual charges), `category`, **`eth_month SMALLINT NULL`** (1–13; NULL = one-time), `amount_due` (before discount), `discount_amount` and `discount_id` (the discount applied, a snapshot), `due_date` (from `due_day` of that Ethiopian month), `created_by`. Unique `(student_id, fee_structure_id, eth_month)`. Generated for all active students when a fee structure is saved or a student enrols (idempotent); admins can add or waive single charges. |
+| **`student_discounts`** (new, D22) | `student_id`, `fee_structure_id` (the fee it reduces; one row per fee, so "tuition and transport" is two rows), `kind` (`percent` \| `amount`), `value` (percent 0–100, or ETB per charge), `reason` (`sibling` \| `staff_child` \| `scholarship` \| `other`), `note` (required for `other`), `from_month` / `to_month` (optional; whole year by default), `created_by`, `created_at`. Entered manually by the admin; audited. Automatic sibling rules are for later. |
 | `payments` (changed) | A receipt: `student_id`, `receipt_number`, `payment_date`, `payment_method`, `reference`, `amount` (total received), `recorded_by`, `notes`. `term`, `category`, `amount_due` are replaced by allocations (kept nullable during the transition). |
 | **`payment_allocations`** (new) | Which charges a payment covers: `payment_id`, `charge_id`, `amount`. One payment can cover several months (e.g. three months of tuition + transport) under **one receipt**. |
 | `student_fee_summary` view | replaced by `student_month_balance` (per student × month: due, discount, paid, balance, status `paid` / `partial` / `unpaid` / `waived` / `not_due`) |
@@ -447,7 +526,13 @@ simple question):**
 - The Gregorian date range of each month comes from the shared Ethiopian
   date converter. The backend gets the same converter as the app, both
   tested against one test-vector file.
-- "Overdue" = the charge's due date has passed and the balance is > 0.
+- "Overdue" = the charge's due date has passed and the balance is > 0. The
+  due date is `due_day` (default the 10th, D27) of that Ethiopian month,
+  e.g. Tikimt 10, 2019 = 2026-10-20.
+- **Discounts are applied when charges are generated.** Adding or changing
+  a discount recalculates only **unpaid** charges, so paid months and
+  printed receipts never change. A discount can't make a charge negative.
+  Percent discounts are rounded to 0.01 ETB.
 
 **Migrating existing payments (term-based):**
 - No guessing of months. Each existing payment row becomes:
@@ -470,7 +555,8 @@ simple question):**
 | `GET/POST/PUT /finance/fee-structures` (G4) | A; P read | monthly / one-time, months, amount |
 | `POST /finance/fee-structures/:id/generate` | A | (re)generate charges for active students; idempotent |
 | `GET /finance/charges?student_id=&eth_month=&status=` | A, P | |
-| `POST /finance/charges`, `PUT /finance/charges/:id` (discount, waive) | A | manual charge, discount |
+| `POST /finance/charges`, `PUT /finance/charges/:id` (waive) | A | manual charge, waive one charge |
+| `GET /finance/discounts?student_id=`, `POST /finance/discounts`, `PUT /finance/discounts/:id`, `DELETE /finance/discounts/:id` (new) | A; P read | per student and fee structure; recalculates unpaid charges |
 | `POST /finance/payments` | A | `{ student_id, payment_date, payment_method, reference?, allocations: [{ charge_id, amount }] }`, or `{ months: [..], categories: [..] }` and the server allocates in month order; returns the receipt |
 | `GET /finance/payments` | A, P | receipts with allocations |
 | `GET /finance/unpaid?eth_month=&class_id=` | A, P | per month |
@@ -486,8 +572,10 @@ transition, `POST /finance/payments` keeps accepting the old shape
 payment, so it keeps working until M10.
 
 **Tests:**
-- a new suite: generation, discounts, a payment covering three months,
-  partial payments, unpaid per month, overdue, receipts, parent scoping
+- a new suite: generation, discounts (percent and amount, changed
+  mid-year without touching paid months), due day 10 and overdue, a
+  payment covering three months, partial payments, unpaid per month,
+  receipts, parent scoping
 - the migration check (totals before = after)
 - g4's finance cases and PERMISSIONS decision 4 numbers re-verified
 
@@ -505,10 +593,10 @@ Backend work for a milestone is merged (with tests) before its frontend part.
 | M2 | **Teacher dashboard and class assignments.** Teacher dashboard; teachers list, create, edit (Amharic names), deactivate, subjects, class assignments with the out-of-list subject warning; my timetable (read). | D4 name fields (teachers, students, parents in one migration); BACKLOG "assignClass: validate input + audit" |
 | M3 | **Students.** List, detail tabs (incl. parents), register, edit (Amharic names), archive, ID card PDF. | G7, G10 |
 | M4 | **Attendance.** Teacher marking (draft kept locally), class sheet, monthly report by Ethiopian month, admin correction. | |
-| M5 | **Exams and results.** Exam schedule (semester), create exam (max-score warning over 100), admin edit/cancel, score entry, class results sheet (incomplete / not ranked), report card view + PDF (yearly PASS/FAIL from the pass mark), **school settings screen** (pass mark). | **B1, B2** (incl. `school_settings`), G1, G9 |
+| M5 | **Exams and results.** Exam schedule (semester), create exam (remaining points shown; over 100 refused), admin edit/cancel, score entry, class results sheet (incomplete / not ranked), report card view + PDF (days absent, conduct, remark, Promoted / Not promoted), **conduct entry** for homeroom teachers, **promotion decisions**, **homeroom teacher** setting, **school settings screen**. | **B1, B2** (incl. `school_settings`, `semester_conduct`, `promotion_decisions`, homeroom endpoint, PERMISSIONS.md update), G1, G9 |
 | M6 | **Parent portal** (mobile-first): children, child dashboard, results per semester and year with rank, attendance, timetable, exams. Fees keep the **current view** (`/parent/fees`, `/parent/child/:id/fees` as today) until M8 (D21). | |
 | M7 | **School dashboards and setup.** Analytics (score bands), timetable management, academic years (both year forms, semester dates, activate, promote), classes, subjects, audit log. | G2, G3, G8 |
-| M8 | **Finance.** Fee structures, charges, record payment (months, receipt PDF), payments, unpaid per month, student and family balances; principal read-only; parent fees. | **B3**, G4, G5 |
+| M8 | **Finance.** Fee structures (months, due day), discounts, charges, record payment (months, receipt PDF), payments, unpaid per month, student and family balances; principal read-only; parent fees. | **B3**, G4, G5 |
 | M9 | **Documents.** List, categories, upload, download (Amharic file names), delete. | |
 | M10 | **Parity and switch-over.** Print styles everywhere, a page-by-page parity checklist against `asms-frontend`, a trial by a school admin, then your sign-off (D12). Then: unlink the old frontend, archive its repo, remove `POST /grades/exams`, the `term` compatibility mappings and the kept-for-rollback columns (`exams.term`, `grades.grade_letter`, `payments.term/category/amount_due`). | cleanup migration |
 
@@ -668,26 +756,16 @@ is pushed before.
 
 ## 11. Open questions
 
-Answered so far: 1–12 (D1–D12) and N1–N8 (D14–D21). Still open:
+Answered: 1–12 (D1–D12) and N1–N14 (D14–D27). New:
 
-- **N9. Discounts:** are there sibling or staff discounts, or scholarships?
-  Are they a percentage or an amount, per student or per fee? (Needed for
-  B3, before M8.)
-- **N10. Report card extras:** should report cards also show conduct (e.g.
-  A/B/C), days absent per semester, and a homeroom teacher's remark? Today's
-  report card shows attendance only. (Needed for B2, before M5.)
-- **N11. Real data check:** may I run the dry-run counts (read-only: exams
-  per term, `term3` rows, undated `term2` exams, payments per term,
-  `fee_structures` rows) on a **restored copy** of the latest `asms` backup?
-  Or will you run them on `asms` yourself? (Needed before B1.)
-- **N12. Max scores over 100:** D15 says to warn. Should the backend also
-  **refuse** an exam that takes a subject over 100 for that class and
-  semester, or only warn and allow it after confirmation? (Planned: warn
-  only.)
-- **N13. Wording and other pass rules:** should the yearly result read
-  "PASS / FAIL" or "Promoted / Not promoted" (in Amharic, e.g. "ተዛውሯል /
-  አልተዛወረም")? Do grades 8, 10 and 12 (national exams) need a different
-  rule, or does the same pass mark apply?
-- **N14. Fee due day:** what is the default due day of a monthly fee (e.g.
-  the 5th of each Ethiopian month)? This decides when a month counts as
-  overdue.
+- **N15. Days absent:** should only `absent` count? `late` and `excused`
+  would be shown separately. (Planned: only `absent`.)
+- **N16. Locking results:** once report cards for a semester are printed,
+  should the admin be able to **lock** that semester, so later score,
+  conduct or exam changes need an unlock (audited)? Without a lock, a
+  reprinted report card can differ from the first one. (Not planned yet;
+  it would go into B2.)
+- **N17. Homeroom teachers today:** is `classes.homeroom_teacher_id`
+  already filled for the current classes, or will the admin set it in the
+  new screen before conduct entry starts? (The real-data check, D24, will
+  show how many classes have one.)
