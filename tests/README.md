@@ -59,6 +59,7 @@ cmd.exe is usually WSL's. Set `GIT_BASH` if Git is installed somewhere unusual.
 | g10 | Phase 1 Addition 1: one rule for creating exams |
 | g11 | Phase 1 Addition 2: deactivate and reactivate a principal |
 | g12 | Phase 1 Decisions 1, 2, 4: existing-parent login, parent (de)activation, outstanding |
+| g13 | Malformed and unknown ids on every route with an id parameter: 404 (403 where the user may not access the id), never 500 |
 
 ## Helpers and fixtures
 
@@ -69,6 +70,7 @@ cmd.exe is usually WSL's. Set `GIT_BASH` if Git is installed somewhere unusual.
 | `srv.sh` | Start or stop the test server on :3100 |
 | `static.js` | Serves `asms-frontend` on :5599, pointing `config.js` at :3100 |
 | `cdp.js` | Minimal DevTools client for headless Edge (temporary profile, page-load checks) |
+| `err500.js` | Sends a real database error through `sendServerError` for g3's generic-500 check |
 | `token.js` | Signs an access token for a user (`node tests/token.js <email>`) |
 | `mkstudents.js` | Creates throwaway students for g2b. The runner calls it |
 | `g3fix.js` → `g3.json` | One-time fixture (teachers, students, parent, classes) used by g3, g4, g4b and g7–g12. `g3.json` holds the ids in the current scratch DB. Re-run `g3fix.js` and save its output to `g3.json` only for a fresh scratch DB |
