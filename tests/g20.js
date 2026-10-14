@@ -67,6 +67,10 @@ const list = async (tok, q) => call(tok, 'GET', `/students?${q}`);
   const audit = (await pool.query("SELECT COUNT(*)::int n FROM audit_logs WHERE target_id = $1 AND action = 'student.updated'", [f9a.id])).rows[0].n;
   ok(audit === 5, 'each successful edit audited (5)', String(audit));
 
+  const yr = (await pool.query("SELECT ay.name, to_char(ay.end_date, 'YYYY-MM-DD') AS end_date FROM classes c JOIN academic_years ay ON ay.id = c.academic_year_id WHERE c.id = $1", [G.c9A])).rows[0];
+  const det = (await call(A, 'GET', url)).body?.data;
+  ok(det?.academic_year === yr.name && det?.academic_year_end === yr.end_date, "profile: the class's academic year with its end date (for the E.C. label)", `${det?.academic_year} ${det?.academic_year_end}`);
+
   console.log('== Archive');
   const ar = await call(A, 'DELETE', `/students/${m9a.id}`);
   ok(ar.status === 200 && names(await list(A, `search=G20${tag}`)) === 'Abeba,Chaltu', 'archive: no longer in the active list');
