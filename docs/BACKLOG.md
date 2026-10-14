@@ -58,7 +58,17 @@ docs" line prints empty. It is only an `echo`, so no test fails.
 
 ## assignClass: validate input and write an audit log entry
 
-*Added 2026-10-11 · backend · not started*
+*Added 2026-10-11 · backend · **done 2026-10-14** (branch `feat/assign-class-audit`, suite g15)*
+
+**Done:** active teacher (400 if deactivated, 404 if unknown), `class_id` /
+`subject_id` must exist: **400 naming the field** (`"class_id does not exist."`),
+following the later body-id decision above rather than the 404 first written
+here. Duplicates answer 409, also when sent at the same moment (the insert
+itself decides). Subjects outside the teacher's list are saved, and the
+response has `outside_subject_list: true`. Audit entries
+`teacher.class_assigned` and `teacher.class_unassigned` (target `teacher`,
+`new_data` with `class_id`, `subject_id`) are written in the same transaction
+as the change.
 
 **Why:** `POST /api/teachers/:id/classes` (`assignClass` in
 `src/controllers/teacher.controller.js`) only checks that `class_id` and

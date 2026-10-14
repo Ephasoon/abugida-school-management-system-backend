@@ -18,6 +18,8 @@ const { sendSuccess,
 const { sendServerError } = require('../utils/errors');
 const { generateTemporaryPassword } = require('../utils/password');
 const { setUserActive }  = require('../utils/sessions');
+const { audit }          = require('../utils/audit');
+const { inTransaction }  = require('../utils/transaction');
 
 
 // ── Helper: Generate Teacher Number ──────────────────────────
@@ -237,21 +239,59 @@ const assignSubjects = async (req, res) => {
 
 
 // ── POST /api/teachers/:id/classes ───────────────────────────
+// The teacher must be active, and class_id / subject_id must exist (400
+// naming the field, as for other body ids). A subject outside the teacher's
+// own subject list is allowed (BACKLOG decision 2026-10-11); the response
+// says so in outside_subject_list. A duplicate answers 409. The insert and
+// its audit entry are one transaction.
 const assignClass = async (req, res) => {
   try {
-    const { id }               = req.params;
+    const { id }                   = req.params;
     const { class_id, subject_id } = req.body;
 
     if (!class_id || !subject_id) {
       return sendError(res, 'class_id and subject_id are required.', 400);
     }
 
-    await db.query(
-      `INSERT INTO teacher_classes (teacher_id, class_id, subject_id)
-       VALUES ($1,$2,$3) ON CONFLICT (teacher_id, class_id, subject_id) DO NOTHING`,
-      [id, class_id, subject_id]
-    );
-    return sendSuccess(res, null, 'Teacher assigned to class.');
+    const { rows: t } = await db.query(
+      'SELECT id, first_name, last_name, is_active FROM teachers WHERE id = $1', [id]);
+    if (!t[0]) return sendError(res, 'Teacher not found.', 404);
+    if (!t[0].is_active) {
+      return sendError(res, 'This teacher is deactivated. Reactivate the teacher before assigning classes.', 400);
+    }
+
+    // ::text comparison: a malformed id simply matches nothing (400, not 500)
+    const { rows: c } = await db.query(
+      'SELECT id, name FROM classes WHERE id::text = $1', [String(class_id)]);
+    if (!c[0]) return sendError(res, 'class_id does not exist.', 400);
+    const { rows: s } = await db.query(
+      'SELECT id, name FROM subjects WHERE id::text = $1', [String(subject_id)]);
+    if (!s[0]) return sendError(res, 'subject_id does not exist.', 400);
+
+    const { rows: own } = await db.query(
+      'SELECT 1 FROM teacher_subjects WHERE teacher_id = $1 AND subject_id = $2', [id, s[0].id]);
+    const outsideSubjectList = own.length === 0;
+
+    const assignment = await inTransaction(async (client) => {
+      const { rows } = await client.query(
+        `INSERT INTO teacher_classes (teacher_id, class_id, subject_id)
+         VALUES ($1,$2,$3) ON CONFLICT (teacher_id, class_id, subject_id) DO NOTHING
+         RETURNING id, teacher_id, class_id, subject_id, created_at`,
+        [id, c[0].id, s[0].id]
+      );
+      if (!rows[0]) return null;
+      await audit(client, req, 'teacher.class_assigned', 'teacher', id, {
+        class_id: c[0].id, subject_id: s[0].id, outside_subject_list: outsideSubjectList,
+      });
+      return rows[0];
+    });
+
+    const who = `${t[0].first_name} ${t[0].last_name}`;
+    if (!assignment) {
+      return sendError(res, `${who} is already assigned to ${s[0].name} in ${c[0].name}.`, 409);
+    }
+    return sendSuccess(res, { ...assignment, outside_subject_list: outsideSubjectList },
+      `${who} assigned to ${s[0].name} in ${c[0].name}.`);
 
   } catch (err) {
     return sendServerError(res, err, 'Server error.');
@@ -264,14 +304,21 @@ const removeClassAssignment = async (req, res) => {
   try {
     const { id, classId, subjectId } = req.params;
 
-    // ::text comparison: a malformed id simply matches nothing (404, not 500)
-    const { rows } = await db.query(
-      `DELETE FROM teacher_classes
-       WHERE teacher_id::text = $1 AND class_id::text = $2 AND subject_id::text = $3
-       RETURNING id`,
-      [id, classId, subjectId]
-    );
-    if (!rows[0]) return sendError(res, 'Assignment not found.', 404);
+    const removed = await inTransaction(async (client) => {
+      // ::text comparison: a malformed id simply matches nothing (404, not 500)
+      const { rows } = await client.query(
+        `DELETE FROM teacher_classes
+         WHERE teacher_id::text = $1 AND class_id::text = $2 AND subject_id::text = $3
+         RETURNING id, class_id, subject_id`,
+        [id, classId, subjectId]
+      );
+      if (!rows[0]) return null;
+      await audit(client, req, 'teacher.class_unassigned', 'teacher', id, {
+        class_id: rows[0].class_id, subject_id: rows[0].subject_id,
+      });
+      return rows[0];
+    });
+    if (!removed) return sendError(res, 'Assignment not found.', 404);
     return sendSuccess(res, null, 'Teacher removed from class.');
 
   } catch (err) {
