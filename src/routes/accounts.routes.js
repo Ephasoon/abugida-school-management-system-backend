@@ -5,7 +5,7 @@ const router  = express.Router();
 const {
   getUsers, createStudentLogin, getParents, createParent,
   createParentLogin, linkChild, unlinkChild, createPrincipal,
-  setPrincipalStatus, setParentStatus, resetPassword,
+  setPrincipalStatus, setParentStatus, setStudentStatus, resetPassword,
 } = require('../controllers/accounts.controller');
 const { authenticate } = require('../middleware/auth.middleware');
 const { adminOnly }    = require('../middleware/role.middleware');
@@ -19,6 +19,7 @@ router.use(adminOnly);
 router.get   ('/users',                                getUsers);
 router.post  ('/users/:userId/reset-password',          checkIds, resetPassword);
 router.post  ('/students/:studentId/login',             checkIds, createStudentLogin);
+router.put   ('/students/:studentId/status',            checkIds, setStudentStatus);     // { is_active }
 router.get   ('/parents',                              getParents);
 router.post  ('/parents',                              createParent);
 router.post  ('/parents/:parentId/login',               checkIds, createParentLogin);   // existing parent, no login yet

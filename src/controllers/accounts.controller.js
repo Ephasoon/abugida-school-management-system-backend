@@ -11,6 +11,7 @@
 //   POST   /api/accounts/principals                → principal login
 //   PUT    /api/accounts/principals/:userId/status → deactivate / reactivate a principal
 //   PUT    /api/accounts/parents/:parentId/status  → deactivate / reactivate a parent
+//   PUT    /api/accounts/students/:studentId/status → disable / enable a student login
 //   POST   /api/accounts/users/:userId/reset-password → new temporary password
 //
 // New logins get a random temporary password, returned ONCE in
@@ -387,6 +388,28 @@ const setParentStatus = async (req, res) => {
   }
 };
 
+// ── PUT /api/accounts/students/:studentId/status ─────────────
+// Disables or enables a student's login without archiving the student.
+// Only an active student's login can be enabled: archived, suspended and
+// graduated students stay cut off (Phase 0; PERMISSIONS decision 5).
+const setStudentStatus = async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT s.user_id, s.status AS student_status, u.email, u.role FROM students s
+       LEFT JOIN users u ON u.id = s.user_id
+       WHERE s.id::text = $1`,
+      [req.params.studentId]);
+    if (!rows[0]) return sendError(res, 'Student not found.', 404);
+    if (!rows[0].user_id) return sendError(res, 'This student has no login to activate or deactivate.', 400);
+    if (req.body.is_active === true && rows[0].student_status !== 'active') {
+      return sendError(res, `Student is ${rows[0].student_status}; only an active student's login can be enabled.`, 400);
+    }
+    return await applyAccountStatus(req, res, rows[0], 'Student');
+  } catch (err) {
+    return sendServerError(res, err, 'Server error while updating the student login.');
+  }
+};
+
 
 // ── POST /api/accounts/users/:userId/reset-password ──────────
 const resetPassword = async (req, res) => {
@@ -418,5 +441,5 @@ const resetPassword = async (req, res) => {
 module.exports = {
   getUsers, createStudentLogin, getParents, createParent,
   createParentLogin, linkChild, unlinkChild, createPrincipal,
-  setPrincipalStatus, setParentStatus, resetPassword,
+  setPrincipalStatus, setParentStatus, setStudentStatus, resetPassword,
 };
