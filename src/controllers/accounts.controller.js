@@ -25,6 +25,8 @@ const { sendServerError } = require('../utils/errors');
 const { generateTemporaryPassword } = require('../utils/password');
 const { revokeAllSessions, setUserActive } = require('../utils/sessions');
 const { parsePagination } = require('../utils/pagination');
+const { audit }           = require('../utils/audit');
+const { inTransaction }   = require('../utils/transaction');
 
 const EMAIL_RE      = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const RELATIONSHIPS = ['father', 'mother', 'guardian', 'other'];
@@ -44,30 +46,8 @@ const createLogin = async (client, email, role, displayName = null) => {
   return { user: rows[0], temporaryPassword };
 };
 
-const audit = (client, req, action, targetType, targetId, data = null) => client.query(
-  `INSERT INTO audit_logs (user_id, action, target_type, target_id, new_data)
-   VALUES ($1, $2, $3, $4, $5)`,
-  [req.user.id, action, targetType, targetId, data ? JSON.stringify(data) : null]
-);
-
 const emailTaken = async (email) =>
   (await db.query('SELECT 1 FROM users WHERE email = $1', [email])).rows.length > 0;
-
-// Runs fn(client) in a transaction
-const inTransaction = async (fn) => {
-  const client = await db.pool.connect();
-  try {
-    await client.query('BEGIN');
-    const result = await fn(client);
-    await client.query('COMMIT');
-    return result;
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
-};
 
 
 // ── GET /api/accounts/users ──────────────────────────────────

@@ -77,7 +77,8 @@ async function uiLogin(page, base, email, password) {
     await A.eval(`document.getElementById('a_teacher').value=${JSON.stringify(G.tB.tid)};
                   document.getElementById('a_class').value=${JSON.stringify(G.c9B)};
                   document.getElementById('a_subject').value=${JSON.stringify(G.eng)}; assign(); true`);
-    ok(await A.waitFor(`document.getElementById('assignmentsBody').innerText.includes('English') && document.getElementById('assignmentsBody').innerText.includes(${JSON.stringify(G.tB.email.length ? 'B' : '')})`), 'new row appears in table');
+    // The row for teacher B (by email) in 9 Section B / English; other teachers' rows don't count
+    ok(await A.waitFor(`[...document.querySelectorAll('#assignmentsBody tr')].some(tr=>tr.innerText.includes(${JSON.stringify(G.tB.email)}) && tr.innerText.includes('9 Section B') && tr.innerText.includes('English'))`), 'new row appears in table');
     const tableText = await A.eval(`document.getElementById('assignmentsBody').innerText`);
     console.log('     table:', tableText.replace(/\s*Remove\s*/g, ' | ').replace(/\s+/g, ' ').trim());
     const e1 = await exam(G.c9B, G.eng);
