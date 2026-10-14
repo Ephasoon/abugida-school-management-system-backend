@@ -1,6 +1,6 @@
 # ASMS Phase 2 — React frontend (plan)
 
-*Draft 2026-10-14, revision 4 (answers to N1–N14 included) · planning only, nothing built yet · awaiting approval*
+*2026-10-14, revision 5 (answers to N1–N17 included) · **approved 2026-10-14**, M1 started · planning only, nothing built yet · awaiting approval*
 
 Sources:
 - `docs/PERMISSIONS.md` (who may do what)
@@ -40,6 +40,9 @@ Sources:
 | D25 (N12) | Max scores over 100 | **Refuse** (400 with a clear message) when a subject's max scores for a semester would exceed 100. |
 | D26 (N13) | Promotion | Wording **"Promoted / Not promoted"** (ተዛውሯል / አልተዛወረም). For grades with regional or national exams, the admin records promotion **manually**; which grades those are is a school setting. |
 | D27 (N14) | Fee due day | Default **the 10th** of each Ethiopian month, changeable per fee structure. |
+| D28 (N15) | Days absent | Only `absent` counts as days absent; `late` and `excused` are shown separately. |
+| D29 (N16) | Locking a semester | The admin can **lock** a semester after report cards are printed. Changing a locked semester's scores or conduct needs an **unlock**, recorded in the audit log. |
+| D30 (N17) | Homeroom teachers | Unknown today; the real-data check (D24) will show how many classes have one. The admin sets homeroom teachers in the new screen (M5). |
 
 ---
 
@@ -451,8 +454,7 @@ change old results):**
 **Report card extras per semester (D23):**
 - **Days absent:** counted from `attendance` rows with status `absent`
   within the semester's date range (§5.1) and the student's class. `late`
-  and `excused` are shown separately and are not counted as absent (open
-  question N15).
+  and `excused` are shown separately and are not counted as absent (D28).
 - **Conduct grade (A/B/C/D) and homeroom remark:**
   - New table `semester_conduct`: `student_id`, `academic_year_id`,
     `semester`, `class_id`, `conduct` (enum `A`–`D`), `remark` (up to 300
@@ -470,6 +472,26 @@ change old results):**
   `PUT /classes/:classId/homeroom` `{ teacher_id }` (A), moves forward into
   B2. The rest of G2 (create and edit classes) stays in M7.
 
+**Locking a semester (D29):**
+- New table `semester_locks`: `academic_year_id`, `semester`, `class_id`
+  (NULL = the whole school), `locked_by`, `locked_at`. The admin locks
+  after the report cards are printed.
+- **While locked**, the backend refuses (409, "Semester 1 2019 E.C. is
+  locked for Grade 9 A. Ask the admin to unlock it.") every change that
+  would alter that semester's results:
+  - `POST /grades` for its exams
+  - creating, editing or cancelling its exams (incl. `max_score`)
+  - `PUT /results/class/:classId/conduct`
+  - manual promotion decisions for a locked year
+- **Unlock** removes the lock row. Both lock and unlock are written to
+  `audit_logs` (`results.semester_locked` / `results.semester_unlocked`,
+  with who, when, and an optional reason). Re-locking afterwards is normal.
+- One check, `assertSemesterUnlocked(client, classId, yearId, semester)`,
+  in the results service, called by every write above inside its
+  transaction.
+- Report cards and PDFs printed from a locked semester show "Final" in the
+  footer; unlocked ones show "Provisional".
+
 **Endpoints (new / changed):**
 
 | Endpoint | Who | Returns |
@@ -486,6 +508,7 @@ change old results):**
 | `PUT /results/class/:classId/conduct` (new) | A, homeroom T | `{ academic_year_id, semester, entries: [{ student_id, conduct, remark }] }` |
 | `PUT /results/student/:studentId/promotion`, `PUT /results/class/:classId/promotion` (new) | A | manual promotion (D26) |
 | `PUT /classes/:classId/homeroom` (new, part of G2) | A | `{ teacher_id }` |
+| `GET /results/locks?academic_year_id=`, `POST /results/locks`, `DELETE /results/locks/:id` (new) | A (P read) | lock / unlock a semester (whole school or one class), audited |
 
 **Tests:** a new suite with fixed fixtures covers:
 - totals, averages, both semesters, the yearly figures
@@ -496,6 +519,8 @@ change old results):**
 - conduct entry: the homeroom teacher may enter it; other teachers and the
   principal get 403
 - pass mark and manual promotion grades, "Promotion pending"
+- locked semesters: every write refused with 409, unlock audited, writes
+  work again after unlock
 - scoping: a parent sees only their own children
 
 ### 5.3 B3 — Monthly fees
@@ -593,7 +618,7 @@ Backend work for a milestone is merged (with tests) before its frontend part.
 | M2 | **Teacher dashboard and class assignments.** Teacher dashboard; teachers list, create, edit (Amharic names), deactivate, subjects, class assignments with the out-of-list subject warning; my timetable (read). | D4 name fields (teachers, students, parents in one migration); BACKLOG "assignClass: validate input + audit" |
 | M3 | **Students.** List, detail tabs (incl. parents), register, edit (Amharic names), archive, ID card PDF. | G7, G10 |
 | M4 | **Attendance.** Teacher marking (draft kept locally), class sheet, monthly report by Ethiopian month, admin correction. | |
-| M5 | **Exams and results.** Exam schedule (semester), create exam (remaining points shown; over 100 refused), admin edit/cancel, score entry, class results sheet (incomplete / not ranked), report card view + PDF (days absent, conduct, remark, Promoted / Not promoted), **conduct entry** for homeroom teachers, **promotion decisions**, **homeroom teacher** setting, **school settings screen**. | **B1, B2** (incl. `school_settings`, `semester_conduct`, `promotion_decisions`, homeroom endpoint, PERMISSIONS.md update), G1, G9 |
+| M5 | **Exams and results.** Exam schedule (semester), create exam (remaining points shown; over 100 refused), admin edit/cancel, score entry, class results sheet (incomplete / not ranked), report card view + PDF (days absent, conduct, remark, Promoted / Not promoted), **conduct entry** for homeroom teachers, **promotion decisions**, **homeroom teacher** setting, **lock / unlock semester**, **school settings screen**. | **B1, B2** (incl. `school_settings`, `semester_conduct`, `promotion_decisions`, `semester_locks`, homeroom endpoint, PERMISSIONS.md update), G1, G9 |
 | M6 | **Parent portal** (mobile-first): children, child dashboard, results per semester and year with rank, attendance, timetable, exams. Fees keep the **current view** (`/parent/fees`, `/parent/child/:id/fees` as today) until M8 (D21). | |
 | M7 | **School dashboards and setup.** Analytics (score bands), timetable management, academic years (both year forms, semester dates, activate, promote), classes, subjects, audit log. | G2, G3, G8 |
 | M8 | **Finance.** Fee structures (months, due day), discounts, charges, record payment (months, receipt PDF), payments, unpaid per month, student and family balances; principal read-only; parent fees. | **B3**, G4, G5 |
@@ -756,16 +781,5 @@ is pushed before.
 
 ## 11. Open questions
 
-Answered: 1–12 (D1–D12) and N1–N14 (D14–D27). New:
-
-- **N15. Days absent:** should only `absent` count? `late` and `excused`
-  would be shown separately. (Planned: only `absent`.)
-- **N16. Locking results:** once report cards for a semester are printed,
-  should the admin be able to **lock** that semester, so later score,
-  conduct or exam changes need an unlock (audited)? Without a lock, a
-  reprinted report card can differ from the first one. (Not planned yet;
-  it would go into B2.)
-- **N17. Homeroom teachers today:** is `classes.homeroom_teacher_id`
-  already filled for the current classes, or will the admin set it in the
-  new screen before conduct entry starts? (The real-data check, D24, will
-  show how many classes have one.)
+All answered: 1–12 (D1–D12) and N1–N17 (D14–D30). New questions will be
+raised at the milestone checkpoints.
