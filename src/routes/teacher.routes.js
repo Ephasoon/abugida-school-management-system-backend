@@ -9,6 +9,7 @@ const { authenticate }        = require('../middleware/auth.middleware');
 const { adminOnly, schoolLeaders, allStaff } = require('../middleware/role.middleware');
 const { requireOwnTeacher } = require('../middleware/studentAccess.middleware');
 const { validateIds } = require('../middleware/validateIds.middleware');
+const { validateBodyIds } = require('../middleware/validateBodyIds.middleware');
 
 router.use(authenticate);
 
@@ -19,8 +20,8 @@ router.get ('/',                  schoolLeaders,  getTeachers);     // List teac
 router.post('/',                  adminOnly,      createTeacher);   // Add teacher
 router.get ('/:id',               allStaff, requireOwnTeacher('id'), checkIds, getTeacherById); // teachers: own profile  // Teacher profile
 router.put ('/:id',               adminOnly, checkIds, updateTeacher);   // Update teacher
-router.post('/:id/subjects',      adminOnly, checkIds, assignSubjects);  // Assign subjects
-router.post('/:id/classes',       adminOnly, checkIds, assignClass);     // Assign class
+router.post('/:id/subjects',      adminOnly, checkIds, validateBodyIds({ 'subject_ids[]': 'subjects' }), assignSubjects);  // Assign subjects
+router.post('/:id/classes',       adminOnly, checkIds, validateBodyIds({ class_id: 'classes', subject_id: 'subjects' }), assignClass);     // Assign class
 router.delete('/:id/classes/:classId/:subjectId', adminOnly, checkIds, removeClassAssignment); // Unassign
 
 module.exports = router;

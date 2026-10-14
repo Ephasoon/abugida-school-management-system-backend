@@ -14,6 +14,7 @@ const { authenticate }              = require('../middleware/auth.middleware');
 const { adminOnly, teacherOrAdmin, allAuthenticated } = require('../middleware/role.middleware');
 const { requireClassAccess } = require('../middleware/studentAccess.middleware');
 const { validateIds } = require('../middleware/validateIds.middleware');
+const { validateBodyIds } = require('../middleware/validateBodyIds.middleware');
 
 router.use(authenticate);
 
@@ -26,7 +27,7 @@ router.get('/class/:classId',    allAuthenticated, requireClassAccess('classId')
 router.get('/',                  allAuthenticated, getAllScheduled);
 
 // Write routes — admin only
-router.post('/',    teacherOrAdmin, scheduleExam);   // teacher: own class + subject only
+router.post('/',    teacherOrAdmin, validateBodyIds({ class_id: 'classes', subject_id: 'subjects' }), scheduleExam);   // teacher: own class + subject only
 router.put('/:id',  adminOnly, checkIds, updateSchedule);
 router.delete('/:id', adminOnly, checkIds, cancelExam);
 

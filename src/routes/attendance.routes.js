@@ -18,13 +18,15 @@ const { authenticate }                   = require('../middleware/auth.middlewar
 const { adminOnly, teacherOrAdmin, allStaff, allAuthenticated } = require('../middleware/role.middleware');
 const { requireStudentAccess, requireClassAccess } = require('../middleware/studentAccess.middleware');
 const { validateIds } = require('../middleware/validateIds.middleware');
+const { validateBodyIds } = require('../middleware/validateBodyIds.middleware');
 
 router.use(authenticate);
 
 const checkIds = validateIds({ id: 'attendance' });   // malformed/unknown ids -> 404 (after role + access checks)
 
 // Mark attendance for a class (teachers + admins)
-router.post('/',                        teacherOrAdmin, requireClassAccess('class_id', { from: 'body' }), markAttendance);
+router.post('/',                        teacherOrAdmin, requireClassAccess('class_id', { from: 'body' }),
+  validateBodyIds({ class_id: 'classes', 'records[].student_id': 'students' }), markAttendance);
 
 // Correct a single record (admin only)
 router.put('/:id',                      adminOnly, checkIds, updateAttendance);

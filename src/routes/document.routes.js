@@ -11,6 +11,8 @@ const {
 const { authenticate }              = require('../middleware/auth.middleware');
 const { adminOnly, allStaff }       = require('../middleware/role.middleware');
 const { validateIds } = require('../middleware/validateIds.middleware');
+const { validateBodyIds } = require('../middleware/validateBodyIds.middleware');
+const { sendError } = require('../utils/response');
 
 // Multer config
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'documents');
@@ -41,6 +43,13 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({ storage, fileFilter, defParamCharset: 'utf8',
                         limits:{ fileSize: 10*1024*1024 } });
 
+// A refused file (type, size) is the client's mistake: 400 / 413, not 500
+const uploadFile = (req, res, next) => upload.single('file')(req, res, (err) => {
+  if (!err) return next();
+  if (err.code === 'LIMIT_FILE_SIZE') return sendError(res, 'The file is larger than 10 MB.', 413);
+  return sendError(res, err.message, 400);
+});
+
 // Routes
 router.use(authenticate);
 
@@ -51,7 +60,8 @@ router.get('/student/:studentId',  allStaff, checkIds, getStudentDocuments);
 router.get('/download/:id',        allStaff, checkIds, downloadDocument);
 router.get('/:id',                 allStaff, checkIds, getDocumentById);
 router.get('/',                    allStaff, getDocuments);
-router.post('/upload', allStaff, upload.single('file'), uploadDocument);
+router.post('/upload', allStaff, uploadFile,
+  validateBodyIds({ student_id: 'students', teacher_id: 'teachers' }), uploadDocument);
 router.delete('/:id',              adminOnly, checkIds, deleteDocument);
 
 module.exports = router;

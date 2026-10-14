@@ -9,6 +9,7 @@ const {
 const { authenticate } = require('../middleware/auth.middleware');
 const { adminOnly, schoolLeaders } = require('../middleware/role.middleware');
 const { validateIds } = require('../middleware/validateIds.middleware');
+const { validateBodyIds } = require('../middleware/validateBodyIds.middleware');
 
 router.use(authenticate);
 
@@ -20,6 +21,6 @@ router.post('/',              adminOnly, createAcademicYear);
 router.put ('/:id',           adminOnly, checkIds, updateAcademicYear);
 router.post('/:id/activate',  adminOnly, checkIds, activateYear);
 router.get ('/:id/stats',     schoolLeaders, checkIds, getYearStats);
-router.post('/:id/promote',   adminOnly, checkIds, promoteStudents);
+router.post('/:id/promote',   adminOnly, checkIds, validateBodyIds({ from_year_id: 'academic_years' }), promoteStudents);
 
 module.exports = router;

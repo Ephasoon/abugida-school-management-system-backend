@@ -14,6 +14,7 @@ const { authenticate }              = require('../middleware/auth.middleware');
 const { adminOnly, allStaff, allAuthenticated } = require('../middleware/role.middleware');
 const { requireClassAccess, requireOwnTeacher } = require('../middleware/studentAccess.middleware');
 const { validateIds } = require('../middleware/validateIds.middleware');
+const { validateBodyIds } = require('../middleware/validateBodyIds.middleware');
 
 router.use(authenticate);
 
@@ -28,8 +29,8 @@ router.get('/class/:classId',      allAuthenticated, requireClassAccess('classId
 router.get('/teacher/:teacherId',  allStaff, requireOwnTeacher('teacherId'), checkIds, getTeacherTimetable);
 
 // Manage slots
-router.post('/',     adminOnly, createSlot);
-router.put('/:id',   adminOnly, checkIds, updateSlot);
+router.post('/',     adminOnly, validateBodyIds({ class_id: 'classes', subject_id: 'subjects', teacher_id: 'teachers' }), createSlot);
+router.put('/:id',   adminOnly, checkIds, validateBodyIds({ subject_id: 'subjects', teacher_id: 'teachers' }), updateSlot);
 router.delete('/:id',adminOnly, checkIds, deleteSlot);
 
 module.exports = router;
