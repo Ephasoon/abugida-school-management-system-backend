@@ -1,7 +1,6 @@
 # ASMS Phase 2 — React frontend (plan)
 
-*Draft 2026-10-14, revision 2 (your answers and the Ethiopian school model
-included) · planning only, nothing built yet · awaiting approval*
+*Draft 2026-10-14, revision 3 (answers to N1–N8 included) · planning only, nothing built yet · awaiting approval*
 
 Sources:
 - `docs/PERMISSIONS.md` (who may do what)
@@ -27,6 +26,14 @@ Sources:
 | D11 | Theme | Dark on screen, light styles for printing. |
 | D12 | Switch-over | You sign off M10 after a school admin has tried it. Then the old frontend is unlinked and its repo archived. |
 | D13 | School model | Two semesters, scores out of 100 with totals, averages and ranks (no GPA or letters), and monthly fees. These backend changes are planned in §5 and done before the grades and finance milestones. |
+| D14 (N1) | Semester 2 start | Default **Yekatit 1** of the academic year (e.g. 2019 E.C. → 2027-02-08), editable per academic year. Undated `term2` exams migrate to **semester 2**. |
+| D15 (N2) | Subject score | **Sum of the assessment scores.** Their max scores add up to 100 per subject per semester. Warn when they would exceed 100; show "incomplete" while below 100. |
+| D16 (N3) | Ranking | Only students with a score in **every subject** of the class for that semester are ranked; others show "not ranked (incomplete)". **Ties: 1, 2, 2, 4.** |
+| D17 (N4) | Pass mark | Pass = **yearly average ≥ 50**, stored as a **school setting** the admin can change. No PASS/FAIL is shown until the setting exists. |
+| D18 (N5) | Score bands | 90–100, 80–89, 70–79, 60–69, 50–59, below 50. |
+| D19 (N6) | Months charged | Monthly fees default to **10 months, Meskerem–Sene**. Each fee structure can choose its own months. |
+| D20 (N7) | Old term payments | Kept as **legacy charges** (no month), not spread over months. Balances stay exactly the same. |
+| D21 (N8) | Parent fees before M8 | The parent portal keeps the **current fee view until M8**, then switches to the monthly view. |
 
 ---
 
@@ -137,6 +144,7 @@ export const CAPABILITIES = {
   'timetable.own':        ['teacher', 'parent'],
   'accounts.manage':      ['admin'],
   'audit.view':           ['admin'],
+  'settings.manage':      ['admin'],                           // school settings (pass mark)
   'idcards.print':        ['admin'],
   'password.own':         ['admin', 'principal', 'teacher', 'parent', 'student'],
 } as const satisfies Record<string, readonly Role[]>;
@@ -209,6 +217,7 @@ with the Ethiopian school model.
 | Academic years (list, current, stats; "2019 E.C. (2026/2027)") | A, P | `GET /academic-years`, `/current`, `/:id/stats` |
 | Academic years (create, edit, activate, promote; semester dates §5.1) | A | `POST /academic-years`, `PUT /:id`, `POST /:id/activate`, `POST /:id/promote` |
 | Classes and subjects setup | A (P view) | ⚠ G2, G3 |
+| School settings (pass mark) | A (P view) | `GET /settings`, `PUT /settings/:key` (§5.2) |
 | Fee structures (monthly and one-time) | A (P view) | ⚠ G4, as redesigned in §5.3 |
 | Finance overview, payments, unpaid **per month** | A, P | changed, §5.3 |
 | Record payment (months covered, receipt PDF) | A | changed, §5.3; ⚠ G5 receipt PDF |
@@ -285,7 +294,7 @@ old frontend `exam-schedule.html`, `grades.html`, `finance.html`,
 | Table / object | Change |
 |---|---|
 | new enum `semester_type` | `('semester1','semester2')` |
-| `academic_years` | add `semester2_start DATE` (semester 1 = `start_date` … day before; semester 2 = `semester2_start` … `end_date`). It is required when creating a year; existing years get a default (open question N1). |
+| `academic_years` | add `semester2_start DATE NOT NULL` (semester 1 = `start_date` … day before; semester 2 = `semester2_start` … `end_date`). **Default: Yekatit 1** of the Ethiopian year in which the academic year starts (D14), e.g. 2019 E.C. (start 2026-09-11) → 2027-02-08. The create/edit form pre-fills it and the admin can change it per year; it must fall between `start_date` and `end_date`. Existing years are backfilled with their Yekatit 1. If a request leaves it out (e.g. the old `academic-years.html`), the backend uses the default, so the old frontend keeps working. |
 | `exams` | add `semester semester_type NOT NULL` (backfilled, below); `term` becomes nullable and read-only, then is dropped |
 | `fee_structures`, `payments` | `term` is replaced by months (B3, §5.3), not by semesters |
 | `student_fee_summary` view | replaced (B3) |
@@ -295,7 +304,7 @@ old frontend `exam-schedule.html`, `grades.html`, `finance.html`,
   that date. This is the most reliable rule, because term numbers don't map
   cleanly onto two semesters.
 - An exam **without a date**: `term1` → semester 1; `term3` → semester 2;
-  `term2` → by the rule you choose (open question N1).
+  `term2` → semester 2 (D14).
 - The dry run lists each exam whose term and date disagree (e.g. `term1`
   with a date in semester 2) for you to check. **term3 data** is migrated
   like the rest and reported separately.
@@ -325,7 +334,7 @@ They are not rebuilt; the old frontend is retired at M10.
 | `pdf.controller.js` + `pdf.service.js` | report card: letters, grade points, GPA box, rank, PASS/FAIL | Rebuild the report card PDF from the results service: per-semester table, yearly table, Ethiopian dates, G9 font |
 | `parent.controller.js` | `gradeToPoints`, GPA in the child summary, `grade_letter` in child grades | Return semester averages and ranks instead |
 | `student.controller.js` (summary) | `grade_letter` in recent grades | Return score / max only |
-| `analytics.controller.js` | grade distribution by `grade_letter` | Distribution by score band (e.g. 90–100, 80–89, …, <50); bands are a constant, open question N5 |
+| `analytics.controller.js` | grade distribution by `grade_letter` | Distribution by score band 90–100, 80–89, 70–79, 60–69, 50–59, below 50 (D18), a constant in the results service |
 | Old frontend | `grades.html` (GPA, rank, letters), `parent-dashboard.html`, `student-detail.html`, `student-detail-new.html`, `analytics.html` (letter chart) | Not rebuilt. During the transition the API keeps returning `gpa`/`grade_letter` as `null`, so those pages show "—" instead of breaking. They are retired at M10. |
 
 **Bug found during the audit:** the current PDF class rank (`pdf.controller.js`)
@@ -333,16 +342,17 @@ averages **all** grades a student ever had in the class, across all years
 and terms. The new rank is per class, year and semester (below).
 
 **How a subject score out of 100 is made:**
-- Recommended: the assessments of one subject in one semester (quizzes,
-  assignments, mid, final) are entered with **max scores that add up to
-  100**, e.g. 10 + 10 + 20 + 60. The subject score is the **sum of the
-  scores**. This is how Ethiopian continuous assessment usually works, and
-  teachers see the same numbers they wrote.
-- Exam creation warns when a subject's max scores in a semester would go
-  over 100. The results show "incomplete" while they add up to less than
-  100.
-- Alternative: scale the sum to 100 (`sum / sum_max × 100`). Open question
-  N2.
+- **Decided (D15):** the assessments of one subject in one semester
+  (quizzes, assignments, mid, final) have **max scores that add up to 100**,
+  e.g. 10 + 10 + 20 + 60. The subject score is the **sum of the scores**. No
+  scaling.
+- **Exam create/edit warns** when the subject's max scores for that class
+  and semester would exceed 100. The response carries a warning with the
+  current sum, and the form asks for confirmation. Whether the backend
+  should also **refuse** over 100 is open question N12.
+- **"Incomplete"** is shown while the max scores for a subject add up to
+  less than 100, or while the student has no score for one of its
+  assessments.
 
 **Per student, per semester (class = the exam's class, so promotion doesn't
 change old results):**
@@ -356,23 +366,41 @@ change old results):**
 - `yearly_average` = (semester 1 average + semester 2 average) ÷ 2
 - `yearly_rank` by yearly average
 
-**Rank rules (proposal):**
-- Rank by **average** (equal to rank by total when everyone takes the same
-  subjects; fairer if not).
-- **Ties:** standard competition ranking. Equal averages after rounding to
-  2 decimals share a rank, and the next rank is skipped (1, 2, 2, 4).
-- Shown as "Rank 2 of 38".
-- **Who is ranked:** active students in the class who have a score in every
-  subject of the class for that semester. Others show "not ranked
-  (incomplete)". Open question N3.
+**Rank rules:**
+- **Who is ranked (D16):** students in the class who have a score in
+  **every subject of the class for that semester**. Others show "not ranked
+  (incomplete)". "Every subject" means every subject that has at least one
+  assessment for that class and semester. For the yearly rank, both
+  semesters must be ranked.
+- **Ties (D16):** standard competition ranking. Equal values (rounded to 2
+  decimals) share a rank, and the next rank is skipped: 1, 2, 2, 4.
+- **Rank by average.** Because only complete students are ranked, all of
+  them have the same subjects, so ranking by total gives the same order.
+  Average is kept because the yearly rank is by yearly average.
+- Shown as "Rank 2 of 36", where 36 is the number of ranked students. The
+  report card also shows the class size, e.g. "(38 students, 2 not
+  ranked)".
 - Computed in SQL with `RANK() OVER (PARTITION BY class, year, semester
   ORDER BY ROUND(average, 2) DESC)` in one **results service**
   (`src/services/results.service.js`). Report cards, PDFs, class results,
   the parent portal and analytics all use it, so ranks can't disagree.
 
-**Pass/fail and promotion:** the GPA ≥ 2.0 rule is removed. What replaces it
-(e.g. yearly average ≥ 50, or no subject below a minimum) is open question
-N4. Until you decide, no PASS/FAIL is shown.
+**Pass/fail (D17):**
+- The GPA ≥ 2.0 rule is removed. Pass = **yearly average ≥ pass mark**.
+- The pass mark is a **school setting** (`pass_yearly_average`, default 50)
+  that the admin can change.
+- **New table `school_settings`:** `key` (PK), `value` (JSONB),
+  `updated_by`, `updated_at`. Changes are written to `audit_logs`. The B2
+  migration creates it with `pass_yearly_average = 50`.
+- **New endpoints:** `GET /settings` (all staff read; the parent portal gets
+  the values it needs inside its results data) and `PUT /settings/:key`
+  (admin; validated per key: the pass mark is a number from 0 to 100).
+- **No PASS/FAIL is shown** while the setting is missing or empty, or while
+  the student's year is incomplete (not ranked). PASS/FAIL is therefore
+  never shown before B2 is live.
+- PASS/FAIL is shown for the **year** only (semesters show averages and
+  ranks). Whether it is worded "Promoted / Not promoted" is open question
+  N13.
 
 **Endpoints (new / changed):**
 
@@ -384,7 +412,8 @@ N4. Until you decide, no PASS/FAIL is shown.
 | `GET /pdf/report-card/:studentId?academic_year_id=` | as today | new layout: both semesters + year, Ethiopian dates, Amharic names (D4), G9 font |
 | `GET /parent/child/:id/grades`, `/summary` | Pa | results shape instead of GPA/letters |
 | `POST /grades` | A, T | response without `grade_letter` |
-| `GET /analytics/grades` | A, P | score bands instead of letters |
+| `GET /analytics/grades` | A, P | score bands (D18): 90–100, 80–89, 70–79, 60–69, 50–59, below 50, by subject score per semester |
+| `GET /settings`, `PUT /settings/:key` (new) | staff read; A write | school settings, starting with `pass_yearly_average` |
 
 **Tests:** a new suite with fixed fixtures covers totals, averages, both
 semesters, the yearly figures, ties (1, 2, 2, 4), incomplete students,
@@ -407,7 +436,7 @@ simple question):**
 
 | Table | Purpose / columns |
 |---|---|
-| `fee_structures` (changed) | `academic_year_id`, `grade_level` (NULL = all), `category`, **`frequency` (`monthly` \| `one_time`)**, `amount`, **`months SMALLINT[]`** (Ethiopian month numbers the monthly fee is charged for, default Meskerem–Sene = 1–10; open question N6), `due_day` (day of the Ethiopian month, monthly) or `due_date` (one-time). `term` dropped. Unique `(academic_year_id, grade_level, category)`. |
+| `fee_structures` (changed) | `academic_year_id`, `grade_level` (NULL = all), `category`, **`frequency` (`monthly` \| `one_time`)**, `amount`, **`months SMALLINT[]`** (Ethiopian month numbers the monthly fee is charged for; **default Meskerem–Sene = 1–10** (D19); each fee structure can pick its own months, e.g. transport 1–10, a summer class 11–12; empty for one-time fees), `due_day` (day of the Ethiopian month, monthly) or `due_date` (one-time). `term` dropped. Unique `(academic_year_id, grade_level, category)`. |
 | **`student_charges`** (new) | What a student owes: `student_id`, `academic_year_id`, `fee_structure_id` (nullable for manual charges), `category`, **`eth_month SMALLINT NULL`** (1–13; NULL = one-time), `amount_due`, `discount` + `discount_reason`, `due_date`, `created_by`. Unique `(student_id, fee_structure_id, eth_month)`. Generated for all active students when a fee structure is saved or a student enrols (idempotent); admins can add or waive single charges. |
 | `payments` (changed) | A receipt: `student_id`, `receipt_number`, `payment_date`, `payment_method`, `reference`, `amount` (total received), `recorded_by`, `notes`. `term`, `category`, `amount_due` are replaced by allocations (kept nullable during the transition). |
 | **`payment_allocations`** (new) | Which charges a payment covers: `payment_id`, `charge_id`, `amount`. One payment can cover several months (e.g. three months of tuition + transport) under **one receipt**. |
@@ -430,7 +459,9 @@ simple question):**
   totals per student and per year match before and after.
 - `fee_structures` rows (if any) are listed for you to re-enter as monthly
   or one-time. They can't be converted automatically.
-- Open question N7: should legacy charges instead be spread over months?
+- **Decided (D20):** legacy charges are not spread over months. The
+  migration fails (and changes nothing) if any per-student or per-year total
+  differs after the move.
 
 **Endpoints (new / changed):**
 
@@ -474,8 +505,8 @@ Backend work for a milestone is merged (with tests) before its frontend part.
 | M2 | **Teacher dashboard and class assignments.** Teacher dashboard; teachers list, create, edit (Amharic names), deactivate, subjects, class assignments with the out-of-list subject warning; my timetable (read). | D4 name fields (teachers, students, parents in one migration); BACKLOG "assignClass: validate input + audit" |
 | M3 | **Students.** List, detail tabs (incl. parents), register, edit (Amharic names), archive, ID card PDF. | G7, G10 |
 | M4 | **Attendance.** Teacher marking (draft kept locally), class sheet, monthly report by Ethiopian month, admin correction. | |
-| M5 | **Exams and results.** Exam schedule (semester), create exam (max scores to 100), admin edit/cancel, score entry, class results sheet, report card view + PDF. | **B1, B2**, G1, G9 |
-| M6 | **Parent portal** (mobile-first): children, child dashboard, results per semester and year with rank, attendance, timetable, exams. Fees show the B3 shape after M8 (old shape until then, open question N8). | |
+| M5 | **Exams and results.** Exam schedule (semester), create exam (max-score warning over 100), admin edit/cancel, score entry, class results sheet (incomplete / not ranked), report card view + PDF (yearly PASS/FAIL from the pass mark), **school settings screen** (pass mark). | **B1, B2** (incl. `school_settings`), G1, G9 |
+| M6 | **Parent portal** (mobile-first): children, child dashboard, results per semester and year with rank, attendance, timetable, exams. Fees keep the **current view** (`/parent/fees`, `/parent/child/:id/fees` as today) until M8 (D21). | |
 | M7 | **School dashboards and setup.** Analytics (score bands), timetable management, academic years (both year forms, semester dates, activate, promote), classes, subjects, audit log. | G2, G3, G8 |
 | M8 | **Finance.** Fee structures, charges, record payment (months, receipt PDF), payments, unpaid per month, student and family balances; principal read-only; parent fees. | **B3**, G4, G5 |
 | M9 | **Documents.** List, categories, upload, download (Amharic file names), delete. | |
@@ -635,44 +666,28 @@ is pushed before.
 
 ---
 
-## 11. Open questions (new)
+## 11. Open questions
 
-The previous questions 1–12 are answered (decisions D1–D12). New ones from
-the school model:
+Answered so far: 1–12 (D1–D12) and N1–N8 (D14–D21). Still open:
 
-- **N1. Semester boundary:**
-  - What is the usual date semester 2 starts? A typical Ethiopian date,
-    e.g. early Yekatit, would be used as the default for existing academic
-    years.
-  - For exams **without a date**, should `term2` go to semester 1 or
-    semester 2? (Exams with a date go by their date.)
-- **N2. Subject score:** assessments add up to 100 and the score is their
-  sum (recommended)? Or scale whatever was entered to 100?
-- **N3. Ranking:**
-  - Rank by average (recommended) or by total?
-  - Should students with a missing subject score be left out of the rank
-    ("incomplete")?
-  - Are ties shared (1, 2, 2, 4)?
-- **N4. Pass / promotion rule:** what replaces GPA ≥ 2.0? For example, a
-  yearly average ≥ 50, or a minimum per subject? Is there a separate rule
-  for national-exam grades (8, 10, 12)? Should the report card show
-  "Promoted / Not promoted"?
-- **N5. Score bands for analytics:** 90–100, 80–89, 70–79, 60–69, 50–59,
-  < 50 OK?
-- **N6. Months charged:** is monthly tuition charged for 10 months
-  (Meskerem–Sene), 12, or set per fee? Is Pagume ever charged? What is the
-  default due day in the month?
-- **N7. Old term payments:** keep them as legacy charges with no month
-  (recommended, balances stay exact), or spread each over its term's months?
-- **N8. Parent fees before M8:** the parent portal (M6) comes before the
-  monthly-fee change (M8). Should M6 show fees in the current format and
-  switch at M8, or should B3 move before M6?
-- **N9. Discounts:** sibling or staff discounts, scholarships? Are they a
-  percentage or an amount, per student or per fee?
-- **N10. Report card extras:** should Ethiopian report cards also show
-  conduct (e.g. A/B/C), days absent per semester, and a homeroom teacher's
-  remark? Today's report card shows attendance only.
-- **N11. Real data check:** may I run the dry-run counts (read-only:
-  exams per term, `term3` rows, payments per term, `fee_structures` rows)
-  on a **restored copy** of the latest `asms` backup? Or will you run them
-  on `asms` yourself?
+- **N9. Discounts:** are there sibling or staff discounts, or scholarships?
+  Are they a percentage or an amount, per student or per fee? (Needed for
+  B3, before M8.)
+- **N10. Report card extras:** should report cards also show conduct (e.g.
+  A/B/C), days absent per semester, and a homeroom teacher's remark? Today's
+  report card shows attendance only. (Needed for B2, before M5.)
+- **N11. Real data check:** may I run the dry-run counts (read-only: exams
+  per term, `term3` rows, undated `term2` exams, payments per term,
+  `fee_structures` rows) on a **restored copy** of the latest `asms` backup?
+  Or will you run them on `asms` yourself? (Needed before B1.)
+- **N12. Max scores over 100:** D15 says to warn. Should the backend also
+  **refuse** an exam that takes a subject over 100 for that class and
+  semester, or only warn and allow it after confirmation? (Planned: warn
+  only.)
+- **N13. Wording and other pass rules:** should the yearly result read
+  "PASS / FAIL" or "Promoted / Not promoted" (in Amharic, e.g. "ተዛውሯል /
+  አልተዛወረም")? Do grades 8, 10 and 12 (national exams) need a different
+  rule, or does the same pass mark apply?
+- **N14. Fee due day:** what is the default due day of a monthly fee (e.g.
+  the 5th of each Ethiopian month)? This decides when a month counts as
+  overdue.
