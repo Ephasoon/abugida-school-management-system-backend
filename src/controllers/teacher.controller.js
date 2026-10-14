@@ -199,37 +199,56 @@ const getTeacherById = async (req, res) => {
 
 
 // ── PUT /api/teachers/:id ────────────────────────────────────
+// Changes only the fields sent. first_name / last_name cannot be emptied;
+// phone, specialization, qualification and the Amharic names are cleared
+// with '' or null. is_active (true/false) also enables or disables the login
+// (disabling revokes every session); a change of status is audited like the
+// account actions (account.teacher_deactivated / _reactivated).
+const CLEARABLE = { phone: 20, specialization: 100, qualification: 100 };
+
 const updateTeacher = async (req, res) => {
   try {
     const { id } = req.params;
-    const { first_name, last_name, phone, gender,
-            specialization, qualification, hire_date, is_active } = req.body;
+    const { first_name, last_name, gender, hire_date, is_active } = req.body;
+    for (const [k, v] of Object.entries({ first_name, last_name })) {
+      if (v !== undefined && (typeof v !== 'string' || !v.trim())) return sendError(res, `${k} cannot be empty.`, 400);
+    }
+    if (is_active !== undefined && is_active !== null && typeof is_active !== 'boolean') {
+      return sendError(res, 'is_active must be true or false.', 400);
+    }
     const am = readAmharicNames(req.body, TEACHER_AM);
     if (am.error) return sendError(res, am.error, 400);
-    const amSet = amharicSet(am.values, 10);
+    const opt = readAmharicNames(req.body, CLEARABLE); // same rules: text, length, '' / null clear
+    if (opt.error) return sendError(res, opt.error, 400);
+    const set = amharicSet({ ...opt.values, ...am.values }, 7);
 
-    const { rows } = await db.query(
-      `UPDATE teachers SET
-         first_name     = COALESCE($1, first_name),
-         last_name      = COALESCE($2, last_name),
-         phone          = COALESCE($3, phone),
-         gender         = COALESCE($4, gender),
-         specialization = COALESCE($5, specialization),
-         qualification  = COALESCE($6, qualification),
-         hire_date      = COALESCE($7, hire_date),
-         is_active      = COALESCE($8, is_active),
-         updated_at     = NOW()${amSet.sql}
-       WHERE id = $9 RETURNING *`,
-      [first_name, last_name, phone, gender,
-       specialization, qualification, hire_date, is_active, id, ...amSet.params]
-    );
-    if (!rows[0]) return sendError(res, 'Teacher not found.', 404);
+    const result = await inTransaction(async (client) => {
+      const { rows: before } = await client.query(
+        `SELECT t.is_active, t.user_id, u.email FROM teachers t LEFT JOIN users u ON u.id = t.user_id
+         WHERE t.id = $1 FOR UPDATE OF t`, [id]);
+      if (!before[0]) return null;
 
-    // Deactivating a teacher also disables their login and revokes all sessions
-    if (is_active !== undefined && is_active !== null) {
-      await setUserActive(rows[0].user_id, rows[0].is_active);
-    }
-    return sendSuccess(res, rows[0], 'Teacher updated.');
+      const { rows } = await client.query(
+        `UPDATE teachers SET
+           first_name = COALESCE($1, first_name),
+           last_name  = COALESCE($2, last_name),
+           gender     = COALESCE($3, gender),
+           hire_date  = COALESCE($4, hire_date),
+           is_active  = COALESCE($5, is_active),
+           updated_at = NOW()${set.sql}
+         WHERE id = $6 RETURNING *`,
+        [first_name?.trim(), last_name?.trim(), gender, hire_date, is_active, id, ...set.params]
+      );
+
+      if (typeof is_active === 'boolean') await setUserActive(rows[0].user_id, is_active, client);
+      if (typeof is_active === 'boolean' && is_active !== before[0].is_active) {
+        await audit(client, req, `account.teacher_${is_active ? 'reactivated' : 'deactivated'}`,
+          'user', rows[0].user_id, { email: before[0].email, teacher_id: id });
+      }
+      return rows[0];
+    });
+    if (!result) return sendError(res, 'Teacher not found.', 404);
+    return sendSuccess(res, result, 'Teacher updated.');
 
   } catch (err) {
     return sendServerError(res, err, 'Server error.');
@@ -238,23 +257,43 @@ const updateTeacher = async (req, res) => {
 
 
 // ── POST /api/teachers/:id/subjects ──────────────────────────
+// Replaces the teacher's subject list in one transaction, audited as
+// teacher.subjects_changed with the list before and after.
 const assignSubjects = async (req, res) => {
   try {
     const { id }          = req.params;
     const { subject_ids } = req.body;
 
-    if (!subject_ids || !Array.isArray(subject_ids)) {
+    if (!Array.isArray(subject_ids) || subject_ids.some((x) => typeof x !== 'string')) {
       return sendError(res, 'subject_ids array is required.', 400);
     }
+    const ids = [...new Set(subject_ids)];
 
-    await db.query('DELETE FROM teacher_subjects WHERE teacher_id = $1', [id]);
-    for (const sid of subject_ids) {
-      await db.query(
-        `INSERT INTO teacher_subjects (teacher_id, subject_id)
-         VALUES ($1,$2) ON CONFLICT DO NOTHING`, [id, sid]
-      );
-    }
-    return sendSuccess(res, null, `${subject_ids.length} subject(s) assigned.`);
+    const result = await inTransaction(async (client) => {
+      const { rows: t } = await client.query('SELECT id FROM teachers WHERE id = $1 FOR UPDATE', [id]);
+      if (!t[0]) return { status: 404, message: 'Teacher not found.' };
+      const { rows: known } = await client.query('SELECT id FROM subjects WHERE id::text = ANY($1)', [ids]);
+      const missing = subject_ids.findIndex((x) => !known.some((k) => k.id === x));
+      if (missing >= 0) return { status: 400, message: `subject_ids[${missing}] does not exist.` };
+
+      const { rows: old } = await client.query(
+        'SELECT subject_id FROM teacher_subjects WHERE teacher_id = $1 ORDER BY subject_id', [id]);
+      await client.query('DELETE FROM teacher_subjects WHERE teacher_id = $1', [id]);
+      if (ids.length) {
+        await client.query(
+          `INSERT INTO teacher_subjects (teacher_id, subject_id)
+           SELECT $1, x::uuid FROM unnest($2::text[]) AS x`, [id, ids]);
+      }
+      const before = old.map((r) => r.subject_id);
+      await audit(client, req, 'teacher.subjects_changed', 'teacher', id, {
+        subject_ids: [...ids].sort(),
+        added:   ids.filter((x) => !before.includes(x)),
+        removed: before.filter((x) => !ids.includes(x)),
+      });
+      return null;
+    });
+    if (result) return sendError(res, result.message, result.status);
+    return sendSuccess(res, null, `${ids.length} subject(s) assigned.`);
 
   } catch (err) {
     return sendServerError(res, err, 'Server error.');

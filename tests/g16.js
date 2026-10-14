@@ -67,6 +67,46 @@ const q = (s) => encodeURIComponent(s);
   const subs = (await call(A, 'GET', '/teachers/subjects')).body?.data || [];
   ok(subs.find(s => s.id === G.math)?.name_am === 'ሒሳብ', 'GET /teachers/subjects returns name_am');
 
+  console.log('== Teacher edit: clearing optional fields');
+  const filled = await call(A, 'PUT', `/teachers/${tid}`, { phone: '0911000001', specialization: 'Algebra', qualification: 'BSc' });
+  ok(filled.status === 200 && filled.body.data.specialization === 'Algebra', 'set phone, specialization, qualification');
+  const cleared = await call(A, 'PUT', `/teachers/${tid}`, { phone: '', specialization: null, qualification: '  ' });
+  ok(cleared.status === 200 && cleared.body.data.phone === null && cleared.body.data.specialization === null && cleared.body.data.qualification === null,
+    "'' / null / spaces clear them");
+  const kept = await call(A, 'PUT', `/teachers/${tid}`, { qualification: 'MSc' });
+  ok(kept.status === 200 && kept.body.data.qualification === 'MSc' && kept.body.data.phone === null && kept.body.data.first_name === 'Abebe', 'fields not sent are kept');
+  ok((await call(A, 'PUT', `/teachers/${tid}`, { phone: '0'.repeat(21) })).status === 400, 'phone longer than 20 -> 400');
+  ok((await call(A, 'PUT', `/teachers/${tid}`, { first_name: '  ' })).status === 400, 'first_name cannot be emptied -> 400');
+  ok((await call(A, 'PUT', '/teachers/00000000-0000-4000-8000-000000000000', { phone: '1' })).status === 404, 'unknown teacher -> 404');
+
+  console.log('== Audit: status and subjects');
+  const auditOf = async (target, like) => (await pool.query(
+    `SELECT action, new_data FROM audit_logs WHERE target_id = $1 AND action LIKE $2 ORDER BY created_at`, [target, like])).rows;
+  const tUser = (await pool.query('SELECT user_id FROM teachers WHERE id = $1', [tid])).rows[0].user_id;
+  await call(A, 'PUT', `/teachers/${tid}`, { is_active: false });
+  await call(A, 'PUT', `/teachers/${tid}`, { is_active: false }); // no change: no second entry
+  await call(A, 'PUT', `/teachers/${tid}`, { is_active: true });
+  const st = await auditOf(tUser, 'account.teacher_%');
+  ok(st.map(r => r.action).join() === 'account.teacher_deactivated,account.teacher_reactivated', 'deactivate and reactivate are audited (on the login, like account actions)', st.map(r => r.action).join());
+  ok(st[0]?.new_data?.teacher_id === tid && st[0]?.new_data?.email === `g16_${tag}@asms.et`, 'entry names the teacher and the email');
+  ok((await pool.query('SELECT is_active FROM users WHERE id = $1', [tUser])).rows[0].is_active === true, 'the login follows the status');
+  ok((await call(A, 'PUT', `/teachers/${tid}`, { is_active: 'no' })).status === 400, 'is_active must be true or false -> 400');
+
+  const eng = G.eng;
+  ok((await call(A, 'POST', `/teachers/${tid}/subjects`, { subject_ids: [G.math, eng] })).status === 200, 'subjects: Mathematics + English');
+  ok((await call(A, 'POST', `/teachers/${tid}/subjects`, { subject_ids: [eng] })).status === 200, 'subjects: English only');
+  const sa = await auditOf(tid, 'teacher.subjects_changed');
+  const last = sa[sa.length - 1]?.new_data;
+  ok(sa.length === 3 && last?.removed?.join() === G.math && last?.added?.length === 0 && last?.subject_ids?.join() === eng,
+    'every subject change is audited with what was added and removed', `${sa.length} entries`);
+  const bad = await call(A, 'POST', `/teachers/${tid}/subjects`, { subject_ids: [eng, '00000000-0000-4000-8000-000000000000'] });
+  ok(bad.status === 400 && bad.body?.message === 'subject_ids[1] does not exist.', 'an unknown or malformed subject -> 400 naming the entry', bad.body?.message);
+  ok((await call(A, 'POST', `/teachers/${tid}/subjects`, { subject_ids: ['nope'] })).status === 400, 'malformed id -> 400');
+  ok((await call(A, 'GET', `/teachers/${tid}`)).body?.data?.subjects?.map(x => x.id).join() === eng, '... and nothing changed');
+  ok((await auditOf(tid, 'teacher.subjects_changed')).length === 3, '... and nothing audited');
+  ok((await call(A, 'POST', '/teachers/00000000-0000-4000-8000-000000000000/subjects', { subject_ids: [] })).status === 404, 'unknown teacher -> 404');
+  ok((await call(P, 'POST', `/teachers/${tid}/subjects`, { subject_ids: [] })).status === 403, 'principal cannot change subjects');
+
   console.log('== Students');
   const s = await call(A, 'POST', '/students', { first_name: 'Kebede', last_name: `G16 ${tag}`, gender: 'male', class_id: G.c9A,
     first_name_am: 'ከበደ', fathers_name_am: `አለሙ${tag}`, last_name_am: 'ታደሰ' });

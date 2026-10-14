@@ -65,7 +65,7 @@ cmd.exe is usually WSL's. Set `GIT_BASH` if Git is installed somewhere unusual.
 | g13 | Malformed and unknown ids on every route with an id parameter: 404 (403 where the user may not access the id), never 500 |
 | g14 | Phase 2 G6: disable and enable a student login without archiving (immediate cut-off, archived students stay cut off, editing the student keeps it, audit) |
 | g15 | Phase 2 M2: teacher class assignments: teacher active, class and subject exist (400 naming the field), 409 on duplicates (also five at once), subjects outside the teacher's list allowed, audit entries for assign and remove |
-| g16 | Phase 2 D4 (migration 018): optional Amharic names for teachers, students and parents: saved, changed or cleared only when sent, length checked, searchable, returned by the lists; teacher list `status=active\|inactive\|all` and `subject_ids` |
+| g16 | Phase 2 D4 (migration 018): optional Amharic names for teachers, students and parents: saved, changed or cleared only when sent, length checked, searchable, returned by the lists; teacher list `status=active\|inactive\|all` and `subject_ids`; teacher edit clears phone / specialization / qualification; deactivate, reactivate and subject changes audited |
 | w1 | asms-web: type check, lint and unit tests (`npm test`: Vitest) |
 | w2 | asms-web: browser tests (Playwright in Edge) of the built app on :5600 against this test backend: login and sessions, menus per role, Ethiopian date picker, admin account screens |
 
