@@ -10,6 +10,7 @@ const {
 const { authenticate } = require('../middleware/auth.middleware');
 const { adminOnly }    = require('../middleware/role.middleware');
 const { validateIds } = require('../middleware/validateIds.middleware');
+const { validateBodyIds } = require('../middleware/validateBodyIds.middleware');
 
 router.use(authenticate);
 
@@ -24,7 +25,7 @@ router.get   ('/parents',                              getParents);
 router.post  ('/parents',                              createParent);
 router.post  ('/parents/:parentId/login',               checkIds, createParentLogin);   // existing parent, no login yet
 router.put   ('/parents/:parentId/status',              checkIds, setParentStatus);     // { is_active }
-router.post  ('/parents/:parentId/children',            checkIds, linkChild);
+router.post  ('/parents/:parentId/children',            checkIds, validateBodyIds({ student_id: 'students' }), linkChild);
 router.delete('/parents/:parentId/children/:studentId', checkIds, unlinkChild);
 router.post  ('/principals',                           createPrincipal);
 router.put   ('/principals/:userId/status',             checkIds, setPrincipalStatus);   // { is_active }

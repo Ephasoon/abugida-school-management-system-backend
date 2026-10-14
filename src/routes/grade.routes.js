@@ -11,17 +11,18 @@ const { authenticate }              = require('../middleware/auth.middleware');
 const { teacherOrAdmin, allStaff, allAuthenticated } = require('../middleware/role.middleware');
 const { requireStudentAccess } = require('../middleware/studentAccess.middleware');
 const { validateIds } = require('../middleware/validateIds.middleware');
+const { validateBodyIds } = require('../middleware/validateBodyIds.middleware');
 
 router.use(authenticate);
 
 const checkIds = validateIds();   // malformed/unknown ids -> 404 (after role + access checks)
 
 // Exams
-router.post('/exams', teacherOrAdmin, createExam);   // deprecated: use POST /api/exam-schedule
+router.post('/exams', teacherOrAdmin, validateBodyIds({ class_id: 'classes', subject_id: 'subjects' }), createExam);   // deprecated: use POST /api/exam-schedule
 router.get ('/exams', allStaff,       getExams);   // teachers: own classes only
 
 // Grades
-router.post('/',                        teacherOrAdmin, enterGrades);
+router.post('/',                        teacherOrAdmin, validateBodyIds({ exam_id: 'exams', 'grades[].student_id': 'students' }), enterGrades);
 router.get ('/report-card/:studentId',  allAuthenticated, requireStudentAccess('studentId'), checkIds, getReportCard);
 
 module.exports = router;

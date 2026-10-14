@@ -267,14 +267,12 @@ const assignSubjects = async (req, res) => {
     if (!Array.isArray(subject_ids) || subject_ids.some((x) => typeof x !== 'string')) {
       return sendError(res, 'subject_ids array is required.', 400);
     }
-    const ids = [...new Set(subject_ids)];
+    // Each id exists: checked by validateBodyIds (400 subject_ids[i] does not exist.)
+    const ids = [...new Set(subject_ids.map((x) => x.toLowerCase()))];
 
     const result = await inTransaction(async (client) => {
       const { rows: t } = await client.query('SELECT id FROM teachers WHERE id = $1 FOR UPDATE', [id]);
       if (!t[0]) return { status: 404, message: 'Teacher not found.' };
-      const { rows: known } = await client.query('SELECT id FROM subjects WHERE id::text = ANY($1)', [ids]);
-      const missing = subject_ids.findIndex((x) => !known.some((k) => k.id === x));
-      if (missing >= 0) return { status: 400, message: `subject_ids[${missing}] does not exist.` };
 
       const { rows: old } = await client.query(
         'SELECT subject_id FROM teacher_subjects WHERE teacher_id = $1 ORDER BY subject_id', [id]);
@@ -303,7 +301,7 @@ const assignSubjects = async (req, res) => {
 
 // ── POST /api/teachers/:id/classes ───────────────────────────
 // The teacher must be active, and class_id / subject_id must exist (400
-// naming the field, as for other body ids). A subject outside the teacher's
+// naming the field: validateBodyIds on the route). A subject outside the teacher's
 // own subject list is allowed (BACKLOG decision 2026-10-11); the response
 // says so in outside_subject_list. A duplicate answers 409. The insert and
 // its audit entry are one transaction.
@@ -323,13 +321,9 @@ const assignClass = async (req, res) => {
       return sendError(res, 'This teacher is deactivated. Reactivate the teacher before assigning classes.', 400);
     }
 
-    // ::text comparison: a malformed id simply matches nothing (400, not 500)
-    const { rows: c } = await db.query(
-      'SELECT id, name FROM classes WHERE id::text = $1', [String(class_id)]);
-    if (!c[0]) return sendError(res, 'class_id does not exist.', 400);
-    const { rows: s } = await db.query(
-      'SELECT id, name FROM subjects WHERE id::text = $1', [String(subject_id)]);
-    if (!s[0]) return sendError(res, 'subject_id does not exist.', 400);
+    // Both ids exist (validateBodyIds); loaded here for their names
+    const { rows: c } = await db.query('SELECT id, name FROM classes WHERE id = $1', [class_id]);
+    const { rows: s } = await db.query('SELECT id, name FROM subjects WHERE id = $1', [subject_id]);
 
     const { rows: own } = await db.query(
       'SELECT 1 FROM teacher_subjects WHERE teacher_id = $1 AND subject_id = $2', [id, s[0].id]);

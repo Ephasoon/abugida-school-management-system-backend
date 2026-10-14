@@ -77,4 +77,4 @@ const validateIds = (tables = {}) => {
   };
 };
 
-module.exports = { validateIds, isUuid };
+module.exports = { validateIds, isUuid, TABLES };

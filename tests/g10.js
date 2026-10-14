@@ -39,8 +39,8 @@ const NONE = '00000000-0000-0000-0000-000000000000';
     ['bad term', { term: 'annual' }, 400],
     ['max_score 0', { max_score: 0 }, 400],
     ['end_time before start_time', { start_time: '10:00', end_time: '09:00' }, 400],
-    ['unknown class', { class_id: NONE }, 404],
-    ['unknown subject', { subject_id: NONE }, 404],
+    ['unknown class', { class_id: NONE }, 400],    // body ids: 400 "class_id does not exist." (G10)
+    ['unknown subject', { subject_id: NONE }, 400],
   ];
   for (const [label, path] of Object.entries(ENDPOINTS)) {
     console.log(`== ${label}`);

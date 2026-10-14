@@ -4,7 +4,36 @@ Items agreed but not yet scheduled. Newest first.
 
 ## Validate ids in request bodies like route ids
 
-*Added 2026-10-14 · backend · not started*
+*Added 2026-10-14 · backend · **done 2026-10-14** (M3, `feat/g10-body-ids`)*
+
+**Done:** `src/middleware/validateBodyIds.middleware.js`, one check on every
+write route that takes ids in the body (after the role and record-level
+checks): `validateBodyIds({ class_id: 'classes', 'records[].student_id': 'students' })`.
+Malformed and unknown ids answer 400 `"<field> does not exist."` with
+`errors.field`; array entries are named (`subject_ids[1]`,
+`grades[2].student_id`). Missing ids are left to the route's own "required"
+check. A refused upload's file is deleted. Suite g17. The duplicate checks
+in `assignClass` / `assignSubjects` were removed. Also fixed on the way: a
+refused upload file type answered 500 (multer filter error), now 400 (413
+over 10 MB).
+
+Before the change (g17 with `AUDIT=1` on `main`), malformed / unknown:
+
+| Route, field | malformed | unknown |
+|---|---|---|
+| POST /academic-years/:id/promote from_year_id | 500 | 404 |
+| POST /accounts/parents/:id/children student_id | 404 | 404 |
+| POST /attendance class_id, records[].student_id | 500 | 500 |
+| POST /documents/upload student_id, teacher_id | 500 | 500 |
+| POST /exam-schedule, POST /grades/exams class_id, subject_id | 404 | 404 |
+| POST /grades exam_id | 500 | 404 |
+| POST /grades grades[].student_id | 500 | 500 |
+| POST /finance/payments student_id, fee_structure_id | 500 | 500 |
+| POST /students class_id | 500 | 400 |
+| PUT /students/:id class_id | 500 | 500 |
+| POST /teachers/:id/subjects, /classes | 400 | 400 |
+| POST /timetable, PUT /timetable/:id class_id, subject_id, teacher_id | 500 | 500 |
+
 
 **Why:** `fix/malformed-ids` (PR #7, merged) added
 `src/middleware/validateIds.middleware.js`. It answers 404 for malformed or
