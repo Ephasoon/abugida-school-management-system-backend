@@ -26,6 +26,7 @@ const getTeacherDashboard = async (req, res) => {
               (SELECT COUNT(*)::int FROM students st WHERE st.class_id = c.id AND st.status = 'active') AS student_count
        FROM teacher_classes tc
        JOIN classes  c ON c.id = tc.class_id
+       JOIN academic_years ay ON ay.id = c.academic_year_id AND ay.is_current  -- this year's classes (M7a)
        JOIN subjects s ON s.id = tc.subject_id
        WHERE tc.teacher_id = $1
        GROUP BY c.id
