@@ -1,6 +1,7 @@
 // Phase 1 decisions 1, 2, 4. Scratch DB, server :3100. Run via guard.sh.
 const pool = require('./tdb');
 const G = require('./g3.json');
+const { createFreeYear } = require('./years');
 const API = 'http://localhost:3100/api';
 let pass = 0, fail = 0;
 const ok = (c, m, x = '') => { c ? pass++ : fail++; console.log(`  ${c ? 'PASS' : 'FAIL'}  ${m}${x ? '  ' + x : ''}`); };
@@ -76,7 +77,7 @@ const sec = process.argv[2];   // optional: run one section (1, 2 or 4)
   if (!sec || sec === '4') {
     console.log('== Decision 4: outstanding = per-student balances');
     const orig = (await call(A, 'GET', '/academic-years/current')).body.data;
-    const y = await call(A, 'POST', '/academic-years', { name: `21${tag.slice(-2)}/21${String(+tag.slice(-2) + 1).padStart(2, '0')}`, start_date: '2031-09-01', end_date: '2032-07-31' });
+    const y = await createFreeYear(call, A, 4000, 5000);
     await call(A, 'POST', `/academic-years/${y.body.data.id}/activate`);
     try {
       const pay = (sid, due, paid) => call(A, 'POST', '/finance/payments', { student_id: sid, amount_due: due, amount_paid: paid, payment_method: 'cash', payment_date: '2026-10-08' });
