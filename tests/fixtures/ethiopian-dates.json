@@ -1,0 +1,26 @@
+{
+  "description": "Gregorian <-> Ethiopian (Amete Mihret) date pairs with independently known values. Shared test vectors: the web app's converter (src/lib/ethiopianDate.ts) is tested against this file, and the backend converter (PHASE2_PLAN B1) must be tested against the same file. Months: 1 Meskerem ... 12 Nehase, 13 Pagume. Ethiopian leap year: year mod 4 = 3 (Pagume has 6 days).",
+  "vectors": [
+    { "gregorian": "2026-10-14", "ethiopian": [2019, 2, 4],  "note": "Tikimt 4, 2019 (the day M1 started)" },
+    { "gregorian": "2026-09-11", "ethiopian": [2019, 1, 1],  "note": "Enkutatash: Meskerem 1, 2019 on Sep 11" },
+    { "gregorian": "2026-09-10", "ethiopian": [2018, 13, 5], "note": "Pagume 5, the last day of a common year" },
+    { "gregorian": "2027-09-11", "ethiopian": [2019, 13, 6], "note": "Pagume 6, 2019 (2019 mod 4 = 3, leap year)" },
+    { "gregorian": "2027-09-12", "ethiopian": [2020, 1, 1],  "note": "Meskerem 1 on Sep 12, after an Ethiopian leap year" },
+    { "gregorian": "2023-09-11", "ethiopian": [2015, 13, 6], "note": "Pagume 6, 2015 (leap year)" },
+    { "gregorian": "2023-09-12", "ethiopian": [2016, 1, 1],  "note": "Enkutatash 2016 on Sep 12" },
+    { "gregorian": "2024-09-11", "ethiopian": [2017, 1, 1],  "note": "Enkutatash 2017" },
+    { "gregorian": "2025-09-10", "ethiopian": [2017, 13, 5], "note": "Pagume 5, 2017" },
+    { "gregorian": "2025-09-11", "ethiopian": [2018, 1, 1],  "note": "Enkutatash 2018" },
+    { "gregorian": "2025-09-27", "ethiopian": [2018, 1, 17], "note": "Meskel: Meskerem 17" },
+    { "gregorian": "2025-01-07", "ethiopian": [2017, 4, 29], "note": "Genna (Christmas) on Tahsas 29" },
+    { "gregorian": "2026-01-07", "ethiopian": [2018, 4, 29], "note": "Genna on Tahsas 29" },
+    { "gregorian": "2024-01-07", "ethiopian": [2016, 4, 28], "note": "Genna on Tahsas 28 (year after a leap year)" },
+    { "gregorian": "2026-01-19", "ethiopian": [2018, 5, 11], "note": "Timket: Tir 11" },
+    { "gregorian": "2026-03-02", "ethiopian": [2018, 6, 23], "note": "Adwa Victory Day: Yekatit 23" },
+    { "gregorian": "2024-03-02", "ethiopian": [2016, 6, 23], "note": "Adwa Victory Day 2024: crosses Gregorian Feb 29" },
+    { "gregorian": "2027-02-08", "ethiopian": [2019, 6, 1],  "note": "Yekatit 1, 2019: default semester 2 start (D14)" },
+    { "gregorian": "2026-10-20", "ethiopian": [2019, 2, 10], "note": "Tikimt 10, 2019: default fee due day (D27)" },
+    { "gregorian": "2000-01-01", "ethiopian": [1992, 4, 22], "note": "Tahsas 22, 1992" },
+    { "gregorian": "1896-03-01", "ethiopian": [1888, 6, 23], "note": "Battle of Adwa: Yekatit 23, 1888" }
+  ]
+}
