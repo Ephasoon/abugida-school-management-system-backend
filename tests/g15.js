@@ -95,6 +95,11 @@ const UNKNOWN = '00000000-0000-4000-8000-000000000000';
     'assign entry has class_id, subject_id and outside_subject_list', JSON.stringify(log[1]?.new_data));
   ok(log[4]?.new_data?.class_id === G.c9B && log[4]?.new_data?.subject_id === G.eng, 'remove entry has class_id and subject_id', JSON.stringify(log[4]?.new_data));
 
+  // Leave nothing behind for other suites (g5 reads the assignment table): remove the
+  // remaining assignments and deactivate the teacher, so it drops out of GET /teachers
+  for (const r of await rows()) await call(A, 'DELETE', `${url}/${r.class_id}/${r.subject_id}`);
+  await call(A, 'PUT', `/teachers/${tid}`, { is_active: false });
+
   await pool.end();
   console.log(`PASS=${pass} FAIL=${fail}`);
   process.exit(fail ? 1 : 0);
