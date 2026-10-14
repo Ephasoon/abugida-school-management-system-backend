@@ -258,7 +258,8 @@ const getStudentById = async (req, res) => {
 
     const student = rows[0];
 
-    // Get student's parents/guardians
+    // Parents and guardians (G7): relationship and primary contact; the
+    // primary contact first, then by name
     const { rows: parents } = await db.query(
       `SELECT
          p.id, p.full_name, p.full_name_am, p.phone, p.phone_secondary,
@@ -267,7 +268,7 @@ const getStudentById = async (req, res) => {
        FROM parents p
        JOIN student_parents sp ON sp.parent_id = p.id
        WHERE sp.student_id = $1
-       ORDER BY sp.is_primary DESC`,
+       ORDER BY sp.is_primary DESC, p.full_name, p.id`,
       [id]
     );
 
