@@ -318,8 +318,10 @@ const updateStudent = async (req, res) => {
       ]
     );
 
-    // Any status other than 'active' disables the student's login (if any)
-    if (status) {
+    // A status change syncs the login: any status other than 'active' disables
+    // it, back to 'active' enables it. An unchanged status leaves it alone, so
+    // editing a student doesn't undo PUT /accounts/students/:id/status.
+    if (status && status !== existing.rows[0].status) {
       await setUserActive(rows[0].user_id, rows[0].status === 'active');
     }
 

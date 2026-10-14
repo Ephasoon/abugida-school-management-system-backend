@@ -60,6 +60,7 @@ cmd.exe is usually WSL's. Set `GIT_BASH` if Git is installed somewhere unusual.
 | g11 | Phase 1 Addition 2: deactivate and reactivate a principal |
 | g12 | Phase 1 Decisions 1, 2, 4: existing-parent login, parent (de)activation, outstanding |
 | g13 | Malformed and unknown ids on every route with an id parameter: 404 (403 where the user may not access the id), never 500 |
+| g14 | Phase 2 G6: disable and enable a student login without archiving (immediate cut-off, archived students stay cut off, editing the student keeps it, audit) |
 
 ## Helpers and fixtures
 
