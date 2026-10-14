@@ -22,10 +22,13 @@ write the real `asms` database. Do not remove these guards.
   always overridden.
 - `asms-frontend` checked out next to this repo (`../asms-frontend`), or set
   `FRONTEND_DIR`.
-- Microsoft Edge for the browser suites (g5, g5b, g6, g9). Set `EDGE_PATH` if
+- Microsoft Edge for the browser suites (g5, g5b, g6, g9, w2). Set `EDGE_PATH` if
   it isn't in the default location.
-- Ports 3100, 5599 and 9333 free. The runner stops with a message if any is in
-  use. The live server on 3000 is not touched.
+- For w1 and w2: the new React app `asms-web` next to this repo (`../asms-web`,
+  with `npm install` done), or set `WEB_DIR`. If it is missing, w1 and w2 are
+  reported as SKIP and do not fail the run.
+- Ports 3100, 5599, 5600 and 9333 free. The runner stops with a message if any
+  is in use. The live server on 3000 and the dev app on 5173 are not touched.
 
 ## Run
 
@@ -61,6 +64,8 @@ cmd.exe is usually WSL's. Set `GIT_BASH` if Git is installed somewhere unusual.
 | g12 | Phase 1 Decisions 1, 2, 4: existing-parent login, parent (de)activation, outstanding |
 | g13 | Malformed and unknown ids on every route with an id parameter: 404 (403 where the user may not access the id), never 500 |
 | g14 | Phase 2 G6: disable and enable a student login without archiving (immediate cut-off, archived students stay cut off, editing the student keeps it, audit) |
+| w1 | asms-web: type check, lint and unit tests (`npm test`: Vitest) |
+| w2 | asms-web: browser tests (Playwright in Edge) of the built app on :5600 against this test backend: login and sessions, menus per role, Ethiopian date picker, admin account screens |
 
 ## Helpers and fixtures
 
