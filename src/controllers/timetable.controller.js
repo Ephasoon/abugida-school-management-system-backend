@@ -168,6 +168,7 @@ const getTeacherTimetable = async (req, res) => {
       `SELECT
          t.id, t.day, t.period, t.start_time, t.end_time, t.room,
          s.name  AS subject_name,
+         s.name_am AS subject_name_am,
          c.name  AS class_name,
          c.grade_level, c.section
        FROM timetable t

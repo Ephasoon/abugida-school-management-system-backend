@@ -14,7 +14,7 @@ const { sendServerError } = require('../utils/errors');
 const getTeacherDashboard = async (req, res) => {
   try {
     const { rows: t } = await db.query(
-      'SELECT id, teacher_number, first_name, last_name FROM teachers WHERE user_id = $1',
+      'SELECT id, teacher_number, first_name, last_name, first_name_am, last_name_am FROM teachers WHERE user_id = $1',
       [req.user.id]);
     if (!t[0]) return sendError(res, 'Teacher profile not found.', 404);
     const teacherId = t[0].id;
@@ -22,7 +22,7 @@ const getTeacherDashboard = async (req, res) => {
     // Own classes, the subjects taught there, and active student counts
     const { rows: classes } = await db.query(
       `SELECT c.id AS class_id, c.name AS class_name, c.grade_level, c.section,
-              json_agg(json_build_object('subject_id', s.id, 'subject', s.name) ORDER BY s.name) AS subjects,
+              json_agg(json_build_object('subject_id', s.id, 'subject', s.name, 'subject_am', s.name_am) ORDER BY s.name) AS subjects,
               (SELECT COUNT(*)::int FROM students st WHERE st.class_id = c.id AND st.status = 'active') AS student_count
        FROM teacher_classes tc
        JOIN classes  c ON c.id = tc.class_id
@@ -50,7 +50,7 @@ const getTeacherDashboard = async (req, res) => {
     // Upcoming exams (next 14 days) in own classes
     const { rows: upcoming } = await db.query(
       `SELECT e.id, e.name, e.exam_type, e.term, e.exam_date,
-              c.name AS class_name, s.name AS subject_name,
+              c.name AS class_name, s.name AS subject_name, s.name_am AS subject_name_am,
               (e.exam_date - CURRENT_DATE) AS days_until
        FROM exams e
        JOIN classes  c ON c.id = e.class_id
@@ -63,7 +63,7 @@ const getTeacherDashboard = async (req, res) => {
 
     // Grading to do: own class+subject exams (already held or undated) with grades missing
     const { rows: grading } = await db.query(
-      `SELECT e.id, e.name, e.term, e.exam_date, c.name AS class_name, s.name AS subject_name,
+      `SELECT e.id, e.name, e.term, e.exam_date, c.name AS class_name, s.name AS subject_name, s.name_am AS subject_name_am,
               (SELECT COUNT(*)::int FROM grades g WHERE g.exam_id = e.id) AS graded,
               (SELECT COUNT(*)::int FROM students st WHERE st.class_id = e.class_id AND st.status = 'active') AS students
        FROM exams e
@@ -78,7 +78,7 @@ const getTeacherDashboard = async (req, res) => {
     // Today's timetable slots for this teacher
     const { rows: today } = await db.query(
       `SELECT t.period, t.start_time, t.end_time, t.room,
-              c.name AS class_name, s.name AS subject_name
+              c.name AS class_name, s.name AS subject_name, s.name_am AS subject_name_am
        FROM timetable t
        JOIN classes  c ON c.id = t.class_id
        JOIN subjects s ON s.id = t.subject_id

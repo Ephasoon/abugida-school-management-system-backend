@@ -20,6 +20,7 @@ const { generateTemporaryPassword } = require('../utils/password');
 const { setUserActive }  = require('../utils/sessions');
 const { audit }          = require('../utils/audit');
 const { inTransaction }  = require('../utils/transaction');
+const { readAmharicNames, amharicSet, TEACHER_AM } = require('../utils/amharicNames');
 
 
 // ── Helper: Generate Teacher Number ──────────────────────────
@@ -43,6 +44,8 @@ const createTeacher = async (req, res) => {
     if (!first_name || !last_name || !email) {
       return sendError(res, 'first_name, last_name, and email are required.', 400);
     }
+    const am = readAmharicNames(req.body, TEACHER_AM);
+    if (am.error) return sendError(res, am.error, 400);
 
     // Check email not already taken
     const { rows: existing } = await db.query(
@@ -69,8 +72,9 @@ const createTeacher = async (req, res) => {
     const { rows } = await client.query(
       `INSERT INTO teachers
          (user_id, teacher_number, first_name, last_name,
-          phone, gender, specialization, qualification, hire_date)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+          phone, gender, specialization, qualification, hire_date,
+          first_name_am, last_name_am)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [
         userRows[0].id, teacher_number,
         first_name.trim(), last_name.trim(),
@@ -78,6 +82,8 @@ const createTeacher = async (req, res) => {
         specialization?.trim() || null,
         qualification?.trim() || null,
         hire_date || null,
+        am.values.first_name_am ?? null,
+        am.values.last_name_am ?? null,
       ]
     );
 
@@ -102,22 +108,36 @@ const createTeacher = async (req, res) => {
 // ── GET /api/teachers ────────────────────────────────────────
 const getTeachers = async (req, res) => {
   try {
-    const { search = '' } = req.query;
-    const params = [true];
-    let   where  = 'WHERE t.is_active = $1';
-
-    if (search.trim()) {
-      where += ` AND (t.first_name ILIKE $2 OR t.last_name ILIKE $2 OR t.teacher_number ILIKE $2)`;
-      params.push(`%${search.trim()}%`);
+    // status: active (default, as before) | inactive | all
+    const { search = '', status = 'active' } = req.query;
+    if (!['active', 'inactive', 'all'].includes(status)) {
+      return sendError(res, 'status must be one of: active, inactive, all', 400);
     }
+    const params = [];
+    const conditions = [];
+    if (status !== 'all') {
+      params.push(status === 'active');
+      conditions.push(`t.is_active = $${params.length}`);
+    }
+    if (String(search).trim()) {
+      params.push(`%${String(search).trim()}%`);
+      const n = params.length;
+      conditions.push(`(t.first_name ILIKE $${n} OR t.last_name ILIKE $${n} OR t.teacher_number ILIKE $${n}
+        OR t.first_name_am ILIKE $${n} OR t.last_name_am ILIKE $${n} OR u.email ILIKE $${n}
+        OR (t.first_name || ' ' || t.last_name) ILIKE $${n}
+        OR (t.first_name_am || ' ' || t.last_name_am) ILIKE $${n})`);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const { rows } = await db.query(
       `SELECT
          t.id, t.teacher_number, t.first_name, t.last_name,
+         t.first_name_am, t.last_name_am,
          t.phone, t.gender, t.specialization, t.qualification,
          t.hire_date, t.is_active, t.photo_url, t.created_at,
          u.email,
          ARRAY_AGG(DISTINCT s.name) FILTER (WHERE s.name IS NOT NULL) AS subjects,
+         ARRAY_AGG(DISTINCT s.id)   FILTER (WHERE s.id   IS NOT NULL) AS subject_ids,
          COUNT(DISTINCT tc.class_id) AS class_count
        FROM teachers t
        LEFT JOIN users            u  ON u.id  = t.user_id
@@ -153,13 +173,14 @@ const getTeacherById = async (req, res) => {
     const teacher = rows[0];
 
     const { rows: subjects } = await db.query(
-      `SELECT s.id, s.name, s.code FROM subjects s
+      `SELECT s.id, s.name, s.name_am, s.code FROM subjects s
        JOIN teacher_subjects ts ON ts.subject_id = s.id
        WHERE ts.teacher_id = $1`, [id]
     );
 
     const { rows: classes } = await db.query(
-      `SELECT c.id, c.name, c.grade_level, c.section, tc.subject_id, s.name AS subject_name
+      `SELECT c.id, c.name, c.grade_level, c.section, tc.subject_id, s.name AS subject_name,
+              s.name_am AS subject_name_am
        FROM teacher_classes tc
        JOIN classes  c ON c.id = tc.class_id
        JOIN subjects s ON s.id = tc.subject_id
@@ -183,6 +204,9 @@ const updateTeacher = async (req, res) => {
     const { id } = req.params;
     const { first_name, last_name, phone, gender,
             specialization, qualification, hire_date, is_active } = req.body;
+    const am = readAmharicNames(req.body, TEACHER_AM);
+    if (am.error) return sendError(res, am.error, 400);
+    const amSet = amharicSet(am.values, 10);
 
     const { rows } = await db.query(
       `UPDATE teachers SET
@@ -194,10 +218,10 @@ const updateTeacher = async (req, res) => {
          qualification  = COALESCE($6, qualification),
          hire_date      = COALESCE($7, hire_date),
          is_active      = COALESCE($8, is_active),
-         updated_at     = NOW()
+         updated_at     = NOW()${amSet.sql}
        WHERE id = $9 RETURNING *`,
       [first_name, last_name, phone, gender,
-       specialization, qualification, hire_date, is_active, id]
+       specialization, qualification, hire_date, is_active, id, ...amSet.params]
     );
     if (!rows[0]) return sendError(res, 'Teacher not found.', 404);
 
@@ -331,7 +355,7 @@ const removeClassAssignment = async (req, res) => {
 const getAllSubjects = async (req, res) => {
   try {
     const { rows } = await db.query(
-      'SELECT id, name, code FROM subjects ORDER BY name'
+      'SELECT id, name, name_am, code FROM subjects ORDER BY name'
     );
     return sendSuccess(res, rows, `${rows.length} subject(s) found.`);
   } catch (err) {

@@ -27,6 +27,7 @@ const { revokeAllSessions, setUserActive } = require('../utils/sessions');
 const { parsePagination } = require('../utils/pagination');
 const { audit }           = require('../utils/audit');
 const { inTransaction }   = require('../utils/transaction');
+const { readAmharicNames, PARENT_AM } = require('../utils/amharicNames');
 
 const EMAIL_RE      = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const RELATIONSHIPS = ['father', 'mother', 'guardian', 'other'];
@@ -140,10 +141,10 @@ const getParents = async (req, res) => {
     let where = '';
     if (search.trim()) {
       params.push(`%${search.trim()}%`);
-      where = `WHERE p.full_name ILIKE $1 OR p.phone ILIKE $1 OR p.email ILIKE $1 OR u.email ILIKE $1`;
+      where = `WHERE p.full_name ILIKE $1 OR p.full_name_am ILIKE $1 OR p.phone ILIKE $1 OR p.email ILIKE $1 OR u.email ILIKE $1`;
     }
     const { rows } = await db.query(
-      `SELECT p.id, p.full_name, p.phone, p.phone_secondary, p.email, p.occupation,
+      `SELECT p.id, p.full_name, p.full_name_am, p.phone, p.phone_secondary, p.email, p.occupation,
               p.user_id, u.email AS login_email, u.is_active AS login_active,
               COALESCE(json_agg(json_build_object(
                 'student_id', s.id, 'student_number', s.student_number,
@@ -179,15 +180,18 @@ const createParent = async (req, res) => {
     const { full_name, phone, phone_secondary, occupation } = req.body;
     const email = normalizeEmail(req.body.email);
     if (!full_name?.trim() || !phone?.trim()) return sendError(res, 'full_name and phone are required.', 400);
+    const am = readAmharicNames(req.body, PARENT_AM);
+    if (am.error) return sendError(res, am.error, 400);
     if (!EMAIL_RE.test(email)) return sendError(res, 'A valid email is required for the login.', 400);
     if (await emailTaken(email)) return sendError(res, 'A user with this email already exists.', 409);
 
     const result = await inTransaction(async (client) => {
       const login = await createLogin(client, email, 'parent');
       const { rows } = await client.query(
-        `INSERT INTO parents (user_id, full_name, phone, phone_secondary, email, occupation)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-        [login.user.id, full_name.trim(), phone.trim(), phone_secondary?.trim() || null, email, occupation?.trim() || null]);
+        `INSERT INTO parents (user_id, full_name, phone, phone_secondary, email, occupation, full_name_am)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+        [login.user.id, full_name.trim(), phone.trim(), phone_secondary?.trim() || null, email, occupation?.trim() || null,
+         am.values.full_name_am ?? null]);
       await audit(client, req, 'account.parent_created', 'parent', rows[0].id, { email });
       return { parent: rows[0], ...login };
     });
