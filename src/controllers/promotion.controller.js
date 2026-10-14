@@ -17,6 +17,9 @@ const { setUserActive }   = require('../utils/sessions');
 const db                  = require('../config/db');
 const { buildPlan, studentsWithoutClass, runFor, PromotionError } = require('../services/promotion.service');
 
+// The server's local date of a timestamp (not UTC: a run at 02:00 is still that day)
+const localDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 const readBody = (body) => {
   const { from_year_id, exclude = [] } = body || {};
   if (!from_year_id) throw new PromotionError(400, 'from_year_id is required.');
@@ -72,7 +75,7 @@ const applyPromotion = async (req, res) => {
       const plan = await buildPlan(client, req.params.id, from_year_id, exclude, { lock: true });
       if (!claimed[0]) {
         const run = await runFor(client, plan.from_year.id);
-        throw new PromotionError(409, `The students of ${plan.from_year.name} were already promoted into ${run?.to_year ?? 'another year'}${run ? ` on ${run.run_at.toISOString().slice(0, 10)}` : ''}.`, { already_run: run });
+        throw new PromotionError(409, `The students of ${plan.from_year.name} were already promoted into ${run?.to_year ?? 'another year'}${run ? ` on ${localDate(run.run_at)}` : ''}.`, { already_run: run });
       }
       if (plan.totals.problems) {
         throw new PromotionError(400, `${plan.missing_classes.length} class(es) are missing in ${plan.to_year.name}. Create or copy them first.`, { missing_classes: plan.missing_classes });
