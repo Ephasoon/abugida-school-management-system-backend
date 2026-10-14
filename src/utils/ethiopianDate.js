@@ -58,4 +58,12 @@ const formatEthiopian = (value, lang = 'en') => {
     : `${MONTHS.en[e.month - 1]} ${e.day}, ${e.year} E.C.`;
 };
 
-module.exports = { toEthiopian, formatEthiopian, MONTHS };
+/**
+ * The Ethiopian year an academic year falls in: the Ethiopian year of its
+ * end date. Not the start date: a school year may start before Meskerem 1
+ * (2024-09-01 is Nehase 26, 2016), but it is the 2017 E.C. school year
+ * (2024/2025, ending in Sene or Hamle 2017). The same rule as the web app.
+ */
+const academicYearEthiopian = (endDate) => toEthiopian(endDate)?.year ?? null;
+
+module.exports = { toEthiopian, formatEthiopian, academicYearEthiopian, MONTHS };

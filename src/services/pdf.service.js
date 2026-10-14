@@ -10,7 +10,7 @@
 const path        = require('path');
 const PDFDocument = require('pdfkit');
 const QRCode      = require('qrcode');
-const { formatEthiopian, toEthiopian } = require('../utils/ethiopianDate');
+const { academicYearEthiopian, formatEthiopian } = require('../utils/ethiopianDate');
 
 // ── Fonts (G9) ────────────────────────────────────────────────
 // Noto Sans Ethiopic (SIL OFL 1.1, assets/fonts/OFL.txt) has Ethiopic and
@@ -29,10 +29,10 @@ const newDocument = (options) => {
 const SCHOOL_NAME_AM = () => process.env.SCHOOL_NAME_AM || (process.env.SCHOOL_NAME ? '' : 'አቡጊዳ ትምህርት ቤት');
 const schoolLine = (school) => [school?.name || 'Äbugida School', school?.name_am ?? SCHOOL_NAME_AM()].filter(Boolean).join(' · ');
 const amharicName = (...parts) => parts.filter(Boolean).join(' ');
-// "2019 E.C. (2026/2027)": the Ethiopian year of the start date, then the stored name
-const academicYearLabel = (name, startDate) => {
-  const e = toEthiopian(startDate);
-  return e ? `${e.year} E.C. (${name})` : (name || '');
+// "2017 E.C. (2024/2025)": the Ethiopian year the school year falls in, then the stored name
+const academicYearLabel = (name, endDate) => {
+  const year = academicYearEthiopian(endDate);
+  return year ? `${year} E.C. (${name})` : (name || '');
 };
 const todayIso = () => {
   const d = new Date();
@@ -347,7 +347,7 @@ const generateStudentIDCard = async (data, res) => {
   const lines = [
     student.fathers_name && `Father: ${student.fathers_name}`,
     `Class: ${student.class_name || 'N/A'}`,
-    student.academic_year && `Year: ${academicYearLabel(student.academic_year, student.academic_year_start)}`,
+    student.academic_year && `Year: ${academicYearLabel(student.academic_year, student.academic_year_end)}`,
     `Gender: ${student.gender === 'female' ? 'Female · ሴት' : student.gender === 'male' ? 'Male · ወንድ' : 'N/A'}`,
     student.date_of_birth && `Born: ${formatEthiopian(student.date_of_birth)}`,
   ].filter(Boolean);

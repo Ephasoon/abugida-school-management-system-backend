@@ -9,7 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const pool = require('./tdb');
 const G = require('./g3.json');
-const { toEthiopian, formatEthiopian } = require('../src/utils/ethiopianDate');
+const { toEthiopian, formatEthiopian, academicYearEthiopian } = require('../src/utils/ethiopianDate');
 const API = 'http://localhost:3100/api';
 let pass = 0, fail = 0;
 const ok = (c, m, x = '') => { c ? pass++ : fail++; console.log(`  ${c ? 'PASS' : 'FAIL'}  ${m}${x ? '  ' + x : ''}`); };
@@ -64,6 +64,15 @@ async function pdfText(buf) {
     prev = e;
   }
   ok(broken === 0, 'every day 1900-2100 follows the previous one (month lengths, Pagume 5/6)', `${broken} breaks`);
+  // The school year's Ethiopian year comes from the end date, also when it starts before Meskerem 1
+  for (const [start, end, want] of [
+    ['2024-09-01', '2025-07-31', 2017], // starts Nehase 26, 2016: still the 2017 E.C. school year
+    ['2026-09-11', '2027-07-10', 2019], // starts on Meskerem 1, 2019
+    ['2025-09-05', '2026-06-30', 2018], // starts Pagume 5, 2017
+  ]) {
+    ok(academicYearEthiopian(end) === want && toEthiopian(start).year === (start < `${start.slice(0, 4)}-09-11` ? want - 1 : want),
+      `academic year ${start} .. ${end} -> ${want} E.C.`, `got ${academicYearEthiopian(end)}`);
+  }
   ok(formatEthiopian('2026-10-14') === 'Tikimt 4, 2019 E.C.' && formatEthiopian('2026-10-14', 'am') === 'ጥቅምት 4 2019 ዓ.ም.' && formatEthiopian(null) === '',
     'formatEthiopian in English and Amharic');
 
@@ -85,7 +94,10 @@ async function pdfText(buf) {
   ok(st.text.includes('Born: Meskerem 1, 2005 E.C.'), 'date of birth in the Ethiopian calendar (2012-09-11 = Meskerem 1, 2005)');
   ok(st.text.includes(`Issued ${formatEthiopian(new Date())}`), 'issue date in the Ethiopian calendar');
   const year = (await pool.query('SELECT ay.start_date, ay.end_date, ay.name FROM classes c JOIN academic_years ay ON ay.id = c.academic_year_id WHERE c.id = $1', [G.c9A])).rows[0];
-  ok(st.text.includes(`Year: ${toEthiopian(year.start_date).year} E.C. (${year.name})`), 'academic year in both forms');
+  ok(st.text.includes(`Year: ${toEthiopian(year.end_date).year} E.C. (${year.name})`), 'academic year in both forms (Ethiopian year of the end date)', `${year.name}: ${year.start_date} .. ${year.end_date}`);
+  if (toEthiopian(year.start_date).year !== toEthiopian(year.end_date).year) {
+    ok(!st.text.includes(`Year: ${toEthiopian(year.start_date).year} E.C.`), `this year starts before Meskerem 1 (${year.start_date}): not labelled with the start date's Ethiopian year`);
+  }
   ok(st.text.includes(`Valid until ${formatEthiopian(year.end_date)}`), 'valid until the end of the academic year (Ethiopian)');
   ok(/FontName\s*\/[A-Z]{6}\+NotoSansEthiopic/.test(st.raw), 'Noto Sans Ethiopic is embedded (subset)');
   ok(!/Helvetica/.test(st.raw), 'no Helvetica left');

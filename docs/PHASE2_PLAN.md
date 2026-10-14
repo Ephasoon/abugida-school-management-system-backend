@@ -26,7 +26,7 @@ Sources:
 | D11 | Theme | Dark on screen, light styles for printing. |
 | D12 | Switch-over | You sign off M10 after a school admin has tried it. Then the old frontend is unlinked and its repo archived. |
 | D13 | School model | Two semesters, scores out of 100 with totals, averages and ranks (no GPA or letters), and monthly fees. These backend changes are planned in §5 and done before the grades and finance milestones. |
-| D14 (N1) | Semester 2 start | Default **Yekatit 1** of the academic year (e.g. 2019 E.C. → 2027-02-08), editable per academic year. Undated `term2` exams migrate to **semester 2**. |
+| D14 (N1) | Semester 2 start | Default **Yekatit 1** of the Ethiopian year the academic year falls in, i.e. the Ethiopian year of its `end_date` (e.g. 2019 E.C. → 2027-02-08; a year 2024-09-01 … 2025-07-31 is 2017 E.C. → 2025-02-08, although it starts on Nehase 26, 2016), editable per academic year. Undated `term2` exams migrate to **semester 2**. |
 | D15 (N2) | Subject score | **Sum of the assessment scores.** Their max scores add up to 100 per subject per semester. **Refused** (400) when they would exceed 100 (D23); "incomplete" while below 100. |
 | D16 (N3) | Ranking | Only students with a score in **every subject** of the class for that semester are ranked; others show "not ranked (incomplete)". **Ties: 1, 2, 2, 4.** |
 | D17 (N4) | Pass mark | Pass = **yearly average ≥ 50**, stored as a **school setting** the admin can change. No PASS/FAIL is shown until the setting exists. |
@@ -317,7 +317,7 @@ old frontend `exam-schedule.html`, `grades.html`, `finance.html`,
 | Table / object | Change |
 |---|---|
 | new enum `semester_type` | `('semester1','semester2')` |
-| `academic_years` | add `semester2_start DATE NOT NULL` (semester 1 = `start_date` … day before; semester 2 = `semester2_start` … `end_date`). **Default: Yekatit 1** of the Ethiopian year in which the academic year starts (D14), e.g. 2019 E.C. (start 2026-09-11) → 2027-02-08. The create/edit form pre-fills it and the admin can change it per year; it must fall between `start_date` and `end_date`. Existing years are backfilled with their Yekatit 1. If a request leaves it out (e.g. the old `academic-years.html`), the backend uses the default, so the old frontend keeps working. |
+| `academic_years` | add `semester2_start DATE NOT NULL` (semester 1 = `start_date` … day before; semester 2 = `semester2_start` … `end_date`). **Default: Yekatit 1** of the Ethiopian year the academic year falls in: the Ethiopian year of its **`end_date`**, not of `start_date` (D14; corrected 2026-10-15: a school year can start before Meskerem 1, e.g. 2024-09-01 = Nehase 26, 2016 starts the 2017 E.C. year, whose Yekatit 1 is 2025-02-08). E.g. 2019 E.C. (2026-09-11 … 2027-07-10) → 2027-02-08. The create/edit form pre-fills it and the admin can change it per year; it must fall between `start_date` and `end_date`. Existing years are backfilled with their Yekatit 1. If a request leaves it out (e.g. the old `academic-years.html`), the backend uses the default, so the old frontend keeps working. |
 | `exams` | add `semester semester_type NOT NULL` (backfilled, below); `term` becomes nullable and read-only, then is dropped |
 | `fee_structures`, `payments` | `term` is replaced by months (B3, §5.3), not by semesters |
 | `student_fee_summary` view | replaced (B3) |
@@ -672,7 +672,11 @@ Backend work for a milestone is merged (with tests) before its frontend part.
   calendar are chosen as Ethiopian months and sent as Gregorian ranges (or
   `eth_month` for fees).
 - **Academic years:** "2019 E.C. (2026/2027)". The E.C. year is that of
-  `start_date`, and the Gregorian part is the stored `name`.
+  `end_date` (the Ethiopian year the school year falls in; corrected
+  2026-10-15: `start_date` can fall before Meskerem 1, e.g. 2024-09-01 is
+  Nehase 26, 2016, but 2024/2025 is 2017 E.C.), and the Gregorian part is
+  the stored `name`. The same rule in the app, the PDFs and the semester-2
+  default (D14).
 - **PDFs** (report card, ID cards, receipts): dates in the Ethiopian
   calendar, done by the backend converter.
 
