@@ -147,7 +147,8 @@ const getStudentIDCardPDF = async (req, res) => {
 
     const { rows } = await db.query(
       `SELECT s.*, c.name AS class_name, c.grade_level, c.section,
-              ay.name AS academic_year
+              ay.name AS academic_year,
+              ay.end_date AS academic_year_end
        FROM students s
        LEFT JOIN classes c ON c.id = s.class_id
        LEFT JOIN academic_years ay ON ay.id = c.academic_year_id
