@@ -8,15 +8,18 @@ const {
 } = require('../controllers/academicYear.controller');
 const { authenticate } = require('../middleware/auth.middleware');
 const { adminOnly, schoolLeaders } = require('../middleware/role.middleware');
+const { validateIds } = require('../middleware/validateIds.middleware');
 
 router.use(authenticate);
+
+const checkIds = validateIds({ id: 'academic_years' });   // malformed/unknown ids -> 404 (after role + access checks)
 
 router.get ('/',              schoolLeaders, getAcademicYears);
 router.get ('/current',       schoolLeaders, getCurrentYear);
 router.post('/',              adminOnly, createAcademicYear);
-router.put ('/:id',           adminOnly, updateAcademicYear);
-router.post('/:id/activate',  adminOnly, activateYear);
-router.get ('/:id/stats',     schoolLeaders, getYearStats);
-router.post('/:id/promote',   adminOnly, promoteStudents);
+router.put ('/:id',           adminOnly, checkIds, updateAcademicYear);
+router.post('/:id/activate',  adminOnly, checkIds, activateYear);
+router.get ('/:id/stats',     schoolLeaders, checkIds, getYearStats);
+router.post('/:id/promote',   adminOnly, checkIds, promoteStudents);
 
 module.exports = router;

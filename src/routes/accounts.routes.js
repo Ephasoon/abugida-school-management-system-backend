@@ -9,20 +9,23 @@ const {
 } = require('../controllers/accounts.controller');
 const { authenticate } = require('../middleware/auth.middleware');
 const { adminOnly }    = require('../middleware/role.middleware');
+const { validateIds } = require('../middleware/validateIds.middleware');
 
 router.use(authenticate);
+
+const checkIds = validateIds();   // malformed/unknown ids -> 404 (after role + access checks)
 router.use(adminOnly);
 
 router.get   ('/users',                                getUsers);
-router.post  ('/users/:userId/reset-password',         resetPassword);
-router.post  ('/students/:studentId/login',            createStudentLogin);
+router.post  ('/users/:userId/reset-password',          checkIds, resetPassword);
+router.post  ('/students/:studentId/login',             checkIds, createStudentLogin);
 router.get   ('/parents',                              getParents);
 router.post  ('/parents',                              createParent);
-router.post  ('/parents/:parentId/login',              createParentLogin);   // existing parent, no login yet
-router.put   ('/parents/:parentId/status',             setParentStatus);     // { is_active }
-router.post  ('/parents/:parentId/children',           linkChild);
-router.delete('/parents/:parentId/children/:studentId', unlinkChild);
+router.post  ('/parents/:parentId/login',               checkIds, createParentLogin);   // existing parent, no login yet
+router.put   ('/parents/:parentId/status',              checkIds, setParentStatus);     // { is_active }
+router.post  ('/parents/:parentId/children',            checkIds, linkChild);
+router.delete('/parents/:parentId/children/:studentId', checkIds, unlinkChild);
 router.post  ('/principals',                           createPrincipal);
-router.put   ('/principals/:userId/status',            setPrincipalStatus);   // { is_active }
+router.put   ('/principals/:userId/status',             checkIds, setPrincipalStatus);   // { is_active }
 
 module.exports = router;

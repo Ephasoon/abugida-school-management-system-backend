@@ -53,6 +53,9 @@ ok $(code "$(req POST /grades "$AT" "{\"exam_id\":\"$EXAM\",\"grades\":[{\"stude
 echo "  S1 score still 90 after rejected writes: $(js "$(req GET /grades/report-card/$S1 "$AT")" "r.data.subjects[0].exams.map(e=>e.score).join(',')")"
 
 echo "== 500s: generic message + error id, full error logged"
-R=$(req GET /students/not-a-uuid "$AT"); ok $(code "$R") 500 "admin GET /students/not-a-uuid"; echo "  body: ${R#* }"
-ID=$(js "$R" "r.errors.error_id"); echo "  log: $(tr -d '\r' < $S/server.log | grep -m1 "error $ID")"
-echo "  log has pg detail: $(tr -d '\r' < $S/server.log | grep -A2 "error $ID" | grep -c 'invalid input syntax')"
+ok $(code "$(req GET /students/not-a-uuid "$AT")") 404 "admin GET /students/not-a-uuid (malformed id: 404, not 500)"
+# No route fails on purpose any more, so send a real pg error through sendServerError (tests/err500.js)
+R=$($S/guard.sh node "$WS/err500.js" 2>$S/err500.log | tail -1); ok $(code "$R") 500 "database error -> 500"; echo "  body: ${R#* }"
+ID=$(js "$R" "r.errors.error_id"); ok "$(js "$R" "r.message")" "Server error while fetching student. (ref: $ID)" "generic message with ref"
+echo "  log: $(tr -d '\r' < $S/err500.log | grep -m1 "error $ID")"
+ok "$(tr -d '\r' < $S/err500.log | grep -A2 "error $ID" | grep -c 'invalid input syntax')" 1 "log has pg detail"

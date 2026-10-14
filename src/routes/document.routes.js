@@ -10,6 +10,7 @@ const {
 } = require('../controllers/document.controller');
 const { authenticate }              = require('../middleware/auth.middleware');
 const { adminOnly, allStaff }       = require('../middleware/role.middleware');
+const { validateIds } = require('../middleware/validateIds.middleware');
 
 // Multer config
 const UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'documents');
@@ -42,13 +43,15 @@ const upload = multer({ storage, fileFilter, defParamCharset: 'utf8',
 
 // Routes
 router.use(authenticate);
+
+const checkIds = validateIds({ id: 'documents' });   // malformed/unknown ids -> 404 (after role + access checks)
 // Admin + principal: all documents; teacher: own uploads + public (see controller)
 router.get('/categories',          allStaff, getCategories);
-router.get('/student/:studentId',  allStaff, getStudentDocuments);
-router.get('/download/:id',        allStaff, downloadDocument);
-router.get('/:id',                 allStaff, getDocumentById);
+router.get('/student/:studentId',  allStaff, checkIds, getStudentDocuments);
+router.get('/download/:id',        allStaff, checkIds, downloadDocument);
+router.get('/:id',                 allStaff, checkIds, getDocumentById);
 router.get('/',                    allStaff, getDocuments);
 router.post('/upload', allStaff, upload.single('file'), uploadDocument);
-router.delete('/:id',              adminOnly,      deleteDocument);
+router.delete('/:id',              adminOnly, checkIds, deleteDocument);
 
 module.exports = router;

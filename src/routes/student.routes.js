@@ -21,18 +21,21 @@ const {
 const { authenticate }           = require('../middleware/auth.middleware');
 const { adminOnly, allStaff, allAuthenticated } = require('../middleware/role.middleware');
 const { requireStudentAccess } = require('../middleware/studentAccess.middleware');
+const { validateIds } = require('../middleware/validateIds.middleware');
 
 // All routes below require a valid JWT token
 router.use(authenticate);
+
+const checkIds = validateIds({ id: 'students' });   // malformed/unknown ids -> 404 (after role + access checks)
 
 // ── List & Create ────────────────────────────────────────────
 router.get ('/'         , allStaff,       getStudents);   // teachers: own classes only   // GET  /api/students
 router.post('/'         , adminOnly,      createStudent); // POST /api/students
 
 // ── Single Student ───────────────────────────────────────────
-router.get ('/:id'         , allAuthenticated, requireStudentAccess('id'), getStudentById);   // GET    /api/students/:id
-router.put ('/:id'         , adminOnly,                         updateStudent);    // PUT    /api/students/:id
-router.delete('/:id'       , adminOnly,                         archiveStudent);   // DELETE /api/students/:id
-router.get ('/:id/summary' , allAuthenticated, requireStudentAccess('id'), getStudentSummary); // GET /api/students/:id/summary
+router.get ('/:id'         , allAuthenticated, requireStudentAccess('id'), checkIds, getStudentById);   // GET    /api/students/:id
+router.put ('/:id'         , adminOnly,                  checkIds, updateStudent);    // PUT    /api/students/:id
+router.delete('/:id'       , adminOnly,                  checkIds, archiveStudent);   // DELETE /api/students/:id
+router.get ('/:id/summary' , allAuthenticated, requireStudentAccess('id'), checkIds, getStudentSummary); // GET /api/students/:id/summary
 
 module.exports = router;
