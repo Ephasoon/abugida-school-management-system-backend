@@ -86,7 +86,7 @@ cmd.exe is usually WSL's. Set `GIT_BASH` if Git is installed somewhere unusual.
 | `setpw.js` | Set a user's password in the scratch DB (`node tests/setpw.js <email> <password>`) |
 | `fresh.js` | Optional: runs every migration in a temporary `fresh_install` schema, then drops it |
 | `cleanup_uploads.js` | Optional: deletes files that tests uploaded under `uploads/documents` |
-| `restore_check.sh`, `check_018.js` | Real-data check (PHASE2_PLAN D24): `bash tests/restore_check.sh 018 tests/check_018.js` dumps `asms` (read-only) to `C:smssms_backup_before_018_<time>.dump`, restores it into `asms_restore_check`, runs the pending migrations there and checks before/after. Never writes to `asms`. Needs `asms_restore_check` to exist once: `createdb -U postgres -O asms_user asms_restore_check` |
+| `restore_check.sh`, `check_018.js` | Real-data check (PHASE2_PLAN D24): `bash tests/restore_check.sh 018 tests/check_018.js` dumps `asms` (read-only) to `C:\asms\asms_backup_before_018_<time>.dump`, restores it into `asms_restore_check`, runs the pending migrations there and checks before/after. Never writes to `asms`. Needs `asms_restore_check` to exist once: `createdb -U postgres -O asms_user asms_restore_check` |
 
 Run one-time helpers through the guard, for example
 `bash tests/guard.sh node tests/setpw.js admin@asms.et Admin@1234`.
