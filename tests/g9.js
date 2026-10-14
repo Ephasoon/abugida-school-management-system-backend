@@ -22,8 +22,13 @@ const tag = String(Date.now()).slice(-6);
   // ── 1. Finance outstanding: reproduce 23,600 expected / 22,600 collected ──
   console.log('== Finance summary outstanding');
   const origYear = (await call(A, 'GET', '/academic-years/current')).body.data;
-  const yName = `20${tag.slice(-2)}/20${String(+tag.slice(-2) + 1).padStart(2, '0')}`;
-  const ny = await call(A, 'POST', '/academic-years', { name: yName, start_date: '2030-09-01', end_date: '2031-07-31' });
+  // A year name not used by an earlier run (names are unique; earlier runs leave theirs behind)
+  let ny;
+  for (let n = +tag.slice(-2) % 99, tries = 0; tries < 99; n = (n + 1) % 99, tries++) {
+    const yName = `20${String(n).padStart(2, '0')}/20${String(n + 1).padStart(2, '0')}`;
+    ny = await call(A, 'POST', '/academic-years', { name: yName, start_date: '2030-09-01', end_date: '2031-07-31' });
+    if (ny.status !== 409) break;
+  }
   await call(A, 'POST', `/academic-years/${ny.body.data.id}/activate`);
   try {
     const pay = (due, paid, sid) => call(A, 'POST', '/finance/payments', { student_id: sid, amount_due: due, amount_paid: paid, payment_method: 'cash', payment_date: '2026-10-08' });

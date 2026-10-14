@@ -15,6 +15,7 @@ const { sendSuccess,
 const { sendServerError } = require('../utils/errors');
 const { parsePagination } = require('../utils/pagination');
 const { setUserActive }   = require('../utils/sessions');
+const { readAmharicNames, amharicSet, STUDENT_AM } = require('../utils/amharicNames');
 const { scopeCondition } = require('../utils/scope');
 
 // ── Helper: Generate Student Number ─────────────────────────
@@ -56,6 +57,9 @@ const createStudent = async (req, res) => {
       return sendError(res, 'gender must be "male" or "female".', 400);
     }
 
+    const am = readAmharicNames(req.body, STUDENT_AM);
+    if (am.error) return sendError(res, am.error, 400);
+
     // 2. Validate class exists (if provided)
     if (class_id) {
       const { rows } = await db.query(
@@ -74,9 +78,10 @@ const createStudent = async (req, res) => {
       `INSERT INTO students (
         student_number, first_name, last_name, fathers_name,
         date_of_birth, gender, class_id, phone, address,
-        region, woreda, previous_school, notes
+        region, woreda, previous_school, notes,
+        first_name_am, fathers_name_am, last_name_am
       ) VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16
       ) RETURNING *`,
       [
         student_number,
@@ -92,6 +97,9 @@ const createStudent = async (req, res) => {
         woreda?.trim() || null,
         previous_school?.trim() || null,
         notes?.trim() || null,
+        am.values.first_name_am ?? null,
+        am.values.fathers_name_am ?? null,
+        am.values.last_name_am ?? null,
       ]
     );
 
@@ -140,6 +148,9 @@ const getStudents = async (req, res) => {
         s.first_name ILIKE $${paramIdx}   OR
         s.last_name  ILIKE $${paramIdx}   OR
         s.fathers_name ILIKE $${paramIdx} OR
+        s.first_name_am ILIKE $${paramIdx} OR
+        s.fathers_name_am ILIKE $${paramIdx} OR
+        s.last_name_am ILIKE $${paramIdx} OR
         s.student_number ILIKE $${paramIdx}
       )`);
       params.push(`%${search.trim()}%`);
@@ -181,6 +192,9 @@ const getStudents = async (req, res) => {
          s.first_name,
          s.last_name,
          s.fathers_name,
+         s.first_name_am,
+         s.fathers_name_am,
+         s.last_name_am,
          s.gender,
          s.date_of_birth,
          s.phone,
@@ -247,7 +261,7 @@ const getStudentById = async (req, res) => {
     // Get student's parents/guardians
     const { rows: parents } = await db.query(
       `SELECT
-         p.id, p.full_name, p.phone, p.phone_secondary,
+         p.id, p.full_name, p.full_name_am, p.phone, p.phone_secondary,
          p.email, p.occupation,
          sp.relationship, sp.is_primary
        FROM parents p
@@ -291,6 +305,10 @@ const updateStudent = async (req, res) => {
       previous_school, status, notes,
     } = req.body;
 
+    const am = readAmharicNames(req.body, STUDENT_AM);
+    if (am.error) return sendError(res, am.error, 400);
+    const amSet = amharicSet(am.values, 15);
+
     const { rows } = await db.query(
       `UPDATE students SET
         first_name      = COALESCE($1,  first_name),
@@ -306,7 +324,7 @@ const updateStudent = async (req, res) => {
         previous_school = COALESCE($11, previous_school),
         status          = COALESCE($12, status),
         notes           = COALESCE($13, notes),
-        updated_at      = NOW()
+        updated_at      = NOW()${amSet.sql}
       WHERE id = $14
       RETURNING *`,
       [
@@ -314,7 +332,7 @@ const updateStudent = async (req, res) => {
         date_of_birth, gender, class_id,
         phone, address, region, woreda,
         previous_school, status, notes,
-        id
+        id, ...amSet.params
       ]
     );
 

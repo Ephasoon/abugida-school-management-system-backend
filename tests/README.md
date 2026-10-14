@@ -65,6 +65,7 @@ cmd.exe is usually WSL's. Set `GIT_BASH` if Git is installed somewhere unusual.
 | g13 | Malformed and unknown ids on every route with an id parameter: 404 (403 where the user may not access the id), never 500 |
 | g14 | Phase 2 G6: disable and enable a student login without archiving (immediate cut-off, archived students stay cut off, editing the student keeps it, audit) |
 | g15 | Phase 2 M2: teacher class assignments: teacher active, class and subject exist (400 naming the field), 409 on duplicates (also five at once), subjects outside the teacher's list allowed, audit entries for assign and remove |
+| g16 | Phase 2 D4 (migration 018): optional Amharic names for teachers, students and parents: saved, changed or cleared only when sent, length checked, searchable, returned by the lists; teacher list `status=active\|inactive\|all` and `subject_ids`; teacher edit clears phone / specialization / qualification; deactivate, reactivate and subject changes audited |
 | w1 | asms-web: type check, lint and unit tests (`npm test`: Vitest) |
 | w2 | asms-web: browser tests (Playwright in Edge) of the built app on :5600 against this test backend: login and sessions, menus per role, Ethiopian date picker, admin account screens |
 
@@ -85,6 +86,7 @@ cmd.exe is usually WSL's. Set `GIT_BASH` if Git is installed somewhere unusual.
 | `setpw.js` | Set a user's password in the scratch DB (`node tests/setpw.js <email> <password>`) |
 | `fresh.js` | Optional: runs every migration in a temporary `fresh_install` schema, then drops it |
 | `cleanup_uploads.js` | Optional: deletes files that tests uploaded under `uploads/documents` |
+| `restore_check.sh`, `check_018.js` | Real-data check (PHASE2_PLAN D24): `bash tests/restore_check.sh 018 tests/check_018.js` dumps `asms` (read-only) to `C:\asms\asms_backup_before_018_<time>.dump`, restores it into `asms_restore_check`, runs the pending migrations there and checks before/after. Never writes to `asms`. Needs `asms_restore_check` to exist once: `createdb -U postgres -O asms_user asms_restore_check` |
 
 Run one-time helpers through the guard, for example
 `bash tests/guard.sh node tests/setpw.js admin@asms.et Admin@1234`.
