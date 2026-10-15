@@ -20,8 +20,10 @@ const TABLES = ['grades', 'exams', 'students'];
   if ((await c.query('SELECT current_database() d')).rows[0].d !== DB) process.exit(1);
   let bad = 0;
   const sums = {};
+  // exams: the columns that exist before and after 020 (020 adds `semester` when both run together)
+  const ROW = { exams: "x.id, x.class_id, x.subject_id, x.name, x.max_score, x.exam_date, x.term" };
   for (const t of TABLES) {
-    sums[t] = (await c.query(`SELECT COUNT(*)::int AS n, COALESCE(md5(string_agg(md5(x::text), '' ORDER BY x.id)), '-') AS sum FROM ${t} x`)).rows[0];
+    sums[t] = (await c.query(`SELECT COUNT(*)::int AS n, COALESCE(md5(string_agg(md5((${ROW[t] ? `ROW(${ROW[t]})` : 'x'})::text), '' ORDER BY x.id)), '-') AS sum FROM ${t} x`)).rows[0];
   }
   const letters = (await c.query('SELECT COUNT(*)::int n, COUNT(grade_letter)::int l FROM grades')).rows[0];
 
