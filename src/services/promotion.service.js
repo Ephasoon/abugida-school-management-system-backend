@@ -4,14 +4,35 @@
 // classes into the next year's classes.
 //   promote  → grade + 1, same section, in the target year
 //   repeat   → the same grade and section in the target year (the admin
-//              excluded the student; pass/fail from results comes in M5)
+//              excluded the student)
+// The preview also gives each student's yearly result (M5a): "not_promoted" students are
+// listed in suggested_repeat (the screen ticks them as repeating); "incomplete" (no yearly
+// result) and "pending" (manual promotion grade, no decision yet) are warnings, not blocks.
+// The admin decides: apply moves exactly the students it is sent.
 //   graduate → grade 12 (status 'graduated', login disabled)
 // The target classes must already exist (copy classes first); nothing is
 // created here. buildPlan is used by the preview (read-only) and by apply,
 // which runs it again inside its transaction.
 // ============================================================
 
+const { classYear, loadClass } = require('./results.service');
+
 const TOP_GRADE = 12;
+
+// Yearly result per student of the given classes: { status, yearly_average, yearly_rank }
+const yearlyResults = async (q, classIds) => {
+  const out = new Map();
+  for (const id of classIds) {
+    const y = await classYear(await loadClass(q, id), q);
+    for (const s of y.students) {
+      out.set(s.student_id, {
+        status: s.promotion?.status ?? (s.yearly_average === null ? 'incomplete' : 'none'),
+        yearly_average: s.yearly_average, yearly_rank: s.yearly_rank, basis: s.promotion?.basis ?? null,
+      });
+    }
+  }
+  return out;
+};
 
 class PromotionError extends Error {
   constructor(status, message, errors) { super(message); this.status = status; this.errors = errors; }
@@ -35,7 +56,7 @@ const loadYears = async (q, toYearId, fromYearId) => {
  * The promotion plan: one row per active student in a class of the source
  * year. exclude: student ids who repeat the grade. lock: FOR UPDATE (apply).
  */
-const buildPlan = async (q, toYearId, fromYearId, exclude = [], { lock = false } = {}) => {
+const buildPlan = async (q, toYearId, fromYearId, exclude = [], { lock = false, withResults = false } = {}) => {
   const { to, from } = await loadYears(q, toYearId, fromYearId);
   const excluded = new Set(exclude.map((x) => String(x).toLowerCase()));
 
@@ -56,6 +77,7 @@ const buildPlan = async (q, toYearId, fromYearId, exclude = [], { lock = false }
     'SELECT id, name, grade_level, section FROM classes WHERE academic_year_id = $1', [to.id]);
   const target = (grade, section) => targets.find((c) => c.grade_level === grade && c.section === section) || null;
 
+  const results = withResults ? await yearlyResults(q, [...new Set(students.map((s) => s.class_id))]) : null;
   const rows = students.map((s) => {
     const repeat = excluded.has(s.id);
     const action = repeat ? 'repeat' : s.grade_level >= TOP_GRADE ? 'graduate' : 'promote';
@@ -72,6 +94,7 @@ const buildPlan = async (q, toYearId, fromYearId, exclude = [], { lock = false }
       to_class: to_class ? { id: to_class.id, name: to_class.name, grade_level: to_class.grade_level, section: to_class.section } : null,
       problem: wanted && !to_class ? 'missing_class' : null,
       wanted,
+      ...(results ? { result: results.get(s.id) ?? { status: 'incomplete', yearly_average: null, yearly_rank: null, basis: null } } : {}),
     };
   });
 
@@ -82,8 +105,13 @@ const buildPlan = async (q, toYearId, fromYearId, exclude = [], { lock = false }
     missing.set(k, { ...r.wanted, students: (missing.get(k)?.students ?? 0) + 1 });
   }
   const count = (a) => rows.filter((r) => r.action === a).length;
+  const byResult = (st) => rows.filter((r) => r.result?.status === st).map((r) => r.student.id);
   return {
     from_year: from, to_year: to, rows,
+    ...(results ? {
+      suggested_repeat: byResult('not_promoted'),
+      warnings: { incomplete: byResult('incomplete').length, pending: byResult('pending').length },
+    } : {}),
     missing_classes: [...missing.values()].sort((a, b) => a.grade_level - b.grade_level || a.section.localeCompare(b.section)),
     totals: { total: rows.length, promote: count('promote'), repeat: count('repeat'), graduate: count('graduate'), problems: rows.filter((r) => r.problem).length },
   };

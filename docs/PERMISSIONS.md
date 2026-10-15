@@ -96,6 +96,11 @@ Now (Phase 1 + M4, tested in g13 and g24):
 | `GET /results/student/:studentId` | admin, principal, teacher (students of own classes), student (self), parent (own children) — like report cards |
 | `GET /results/class/:classId` | admin, principal, teacher (own classes) |
 | `GET /grades/exams/:examId` (G1) | admin, principal; teacher: own class + subject |
+| `GET /results/class/:classId/conduct` | admin, principal, the homeroom teacher, teachers of the class |
+| `PUT /results/class/:classId/conduct` | admin, the homeroom teacher of the class (the only right the homeroom column grants) |
+| `PUT /results/student/:studentId/promotion`, `PUT /results/class/:classId/promotion` | admin (audited) |
+| `GET /results/locks` | admin, principal |
+| `POST /results/locks`, `DELETE /results/locks/:id` | admin (audited) |
 | `GET /settings` | admin, principal, teacher |
 | `PUT /settings/:key` | admin (audited) |
 

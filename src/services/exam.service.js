@@ -24,6 +24,7 @@ const { validateMaxScore } = require('../utils/examRules');
 const { TERMS, TERM_TO_SEMESTER, SEMESTER_TO_TERM, parseSemester, semesterOfDate, semesterNumber } = require('../utils/semesters');
 const { isIsoDate } = require('../utils/attendance');
 const { inTransaction } = require('../utils/transaction');
+const { LockedError, assertSemesterUnlocked } = require('./locks.service');
 
 const EXAM_TYPES = ['quiz', 'midterm', 'final', 'assignment', 'project'];
 
@@ -67,6 +68,16 @@ const decideSemester = (year, { semester, term, exam_date }) => {
 };
 
 const fmt = (n) => Number(Number(n).toFixed(2));
+
+/** D29: refuse (409) a change to an exam of a locked semester. */
+const assertUnlocked = async (client, cls, semester) => {
+  try {
+    await assertSemesterUnlocked(client, { classId: cls.id, yearId: cls.academic_year_id, semester, className: cls.name });
+  } catch (err) {
+    if (err instanceof LockedError) throw new ExamError(409, err.message, err.errors);
+    throw err;
+  }
+};
 
 /**
  * D25: refuse (400) when the subject's max scores in this class and semester would exceed 100.
@@ -143,6 +154,7 @@ const createExam = async (user, input, { requireDate = false } = {}) => {
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
+    await assertUnlocked(client, cls, sem.semester);
     await assertMaxTotal(client, { cls, subjectId: sub[0].id, subjectName: sub[0].name, semester: sem.semester, maxScore: max_score });
     const { rows: exam } = await client.query(
       `INSERT INTO exams
@@ -190,6 +202,8 @@ const updateExam = async (id, input) => {
   const subjectName = (await db.query('SELECT name FROM subjects WHERE id = $1', [cur[0].subject_id])).rows[0]?.name ?? 'Subject';
 
   return inTransaction(async (client) => {
+    await assertUnlocked(client, cls, cur[0].semester);
+    if (sem.semester !== cur[0].semester) await assertUnlocked(client, cls, sem.semester);
     if (max_score !== undefined || sem.semester !== cur[0].semester) {
       await assertMaxTotal(client, { cls, subjectId: cur[0].subject_id, subjectName, semester: sem.semester,
         maxScore: max_score ?? cur[0].max_score, excludeExamId: cur[0].id });
@@ -208,4 +222,4 @@ const updateExam = async (id, input) => {
   });
 };
 
-module.exports = { createExam, updateExam, decideSemester, loadClassYear, assertMaxTotal, ExamError, EXAM_TYPES, TERMS };
+module.exports = { createExam, updateExam, decideSemester, loadClassYear, assertMaxTotal, assertUnlocked, ExamError, EXAM_TYPES, TERMS };

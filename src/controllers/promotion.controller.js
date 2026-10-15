@@ -34,7 +34,8 @@ const fail = (res, err) => (err instanceof PromotionError
 // What the app shows: the plan without internal fields
 const publicPlan = (plan) => ({
   from_year: plan.from_year, to_year: plan.to_year, totals: plan.totals, missing_classes: plan.missing_classes,
-  students: plan.rows.map(({ student, from_class, action, to_class, problem }) => ({ student, from_class, action, to_class, problem })),
+  students: plan.rows.map(({ student, from_class, action, to_class, problem, result }) => ({ student, from_class, action, to_class, problem, result })),
+  ...(plan.suggested_repeat ? { suggested_repeat: plan.suggested_repeat, warnings: plan.warnings } : {}),
 });
 
 
@@ -42,7 +43,7 @@ const publicPlan = (plan) => ({
 const previewPromotion = async (req, res) => {
   try {
     const { from_year_id, exclude } = readBody(req.body);
-    const plan = await buildPlan(db, req.params.id, from_year_id, exclude);
+    const plan = await buildPlan(db, req.params.id, from_year_id, exclude, { withResults: true });
     return sendSuccess(res, {
       ...publicPlan(plan),
       already_run: await runFor(db, plan.from_year.id),

@@ -24,6 +24,7 @@ const { parsePagination } = require('../utils/pagination');
 const { audit }           = require('../utils/audit');
 const { inTransaction }   = require('../utils/transaction');
 const { STATUSES, TEACHER_WINDOW_DAYS, rateSql, isIsoDate, localDate, addDays, teacherWindow } = require('../utils/attendance');
+const { LockedError, assertDateUnlocked } = require('../services/locks.service');
 const RATE   = rateSql();   // attendance rate (M4): late attended, excused left out
 const RATE_A = rateSql('a');   // attendance rate (M4): late attended, excused left out
 
@@ -122,6 +123,7 @@ const markAttendance = async (req, res) => {
     }
 
     const saved = await inTransaction(async (client) => {
+      await assertDateUnlocked(client, class_id, date);   // D29: days absent are on the report card
       const out = [];
       for (const r of clean) {
         const { rows } = await client.query(
@@ -157,6 +159,7 @@ const markAttendance = async (req, res) => {
     }, `Attendance marked for ${saved.length} student(s) on ${date}.`, 201);
 
   } catch (err) {
+    if (err instanceof LockedError) return sendError(res, err.message, err.status, err.errors);
     return sendServerError(res, err, 'Server error while marking attendance.');
   }
 };
@@ -252,6 +255,7 @@ const updateAttendance = async (req, res) => {
     const updated = await inTransaction(async (client) => {
       const { rows: old } = await client.query('SELECT * FROM attendance WHERE id = $1 FOR UPDATE', [id]);
       if (!old[0]) throw new HttpError(404, 'Attendance record not found.');
+      await assertDateUnlocked(client, old[0].class_id, old[0].date);   // D29
       const next = { status: status ?? old[0].status, note: hasNote ? note.value : old[0].note };
       const { rows } = await client.query(
         `UPDATE attendance SET status = $1, note = $2, updated_at = NOW() WHERE id = $3 RETURNING *`,
@@ -266,7 +270,7 @@ const updateAttendance = async (req, res) => {
     return sendSuccess(res, updated, 'Attendance updated successfully.');
 
   } catch (err) {
-    if (err instanceof HttpError) return sendError(res, err.message, err.status, err.errors);
+    if (err instanceof HttpError || err instanceof LockedError) return sendError(res, err.message, err.status, err.errors);
     return sendServerError(res, err, 'Server error while updating attendance.');
   }
 };
