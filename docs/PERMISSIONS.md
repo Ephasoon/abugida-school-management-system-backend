@@ -90,6 +90,15 @@ Now (Phase 1 + M4, tested in g13 and g24):
 - Class sheet, report (`?from=&to=`, at most 62 days, or the older `?month=&year=`): admin, principal, teacher (own classes, any year). The sheet's `marking` field says whether the requester may mark that class on that date.
 - Student history: admin, principal, teacher (students of own classes), student (self), parent (own children).
 
+### `/api/results`, `/api/settings` (M5a)
+| Route | Access |
+|---|---|
+| `GET /results/student/:studentId` | admin, principal, teacher (students of own classes), student (self), parent (own children) — like report cards |
+| `GET /results/class/:classId` | admin, principal, teacher (own classes) |
+| `GET /grades/exams/:examId` (G1) | admin, principal; teacher: own class + subject |
+| `GET /settings` | admin, principal, teacher |
+| `PUT /settings/:key` | admin (audited) |
+
 ### `/api/grades`
 | Route | Current access | Verdict |
 |---|---|---|

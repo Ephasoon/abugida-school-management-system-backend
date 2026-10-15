@@ -1,5 +1,6 @@
 // src/controllers/grade.controller.js
-// Fixed: academic_year_id now fetched automatically from current active year
+// Exams and scores. Results (subject scores out of 100, totals, averages, ranks; no letters
+// or GPA since M5a, B2) come from services/results.service.js.
 
 const db            = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
@@ -10,6 +11,7 @@ const { rateSql } = require('../utils/attendance');
 const RATE   = rateSql();   // attendance rate (M4): late attended, excused left out
 
 const { semesterFilter } = require('../utils/semesters');
+const { studentResults, ResultsError } = require('../services/results.service');
 
 // Helper: teacher id if this user teaches subjectId in classId (teacher_classes), else null
 const getAssignedTeacherId = async (userId, classId, subjectId) => {
@@ -23,26 +25,6 @@ const getAssignedTeacherId = async (userId, classId, subjectId) => {
 };
 
 const NOT_ASSIGNED = 'Access denied. You are not assigned to teach this subject in this class.';
-
-// Helper: grade letter from percentage
-const percentageToGrade = (pct) => {
-  if (pct >= 90) return 'A+';
-  if (pct >= 85) return 'A';
-  if (pct >= 80) return 'A-';
-  if (pct >= 75) return 'B+';
-  if (pct >= 70) return 'B';
-  if (pct >= 65) return 'B-';
-  if (pct >= 60) return 'C+';
-  if (pct >= 55) return 'C';
-  if (pct >= 50) return 'C-';
-  if (pct >= 45) return 'D';
-  return 'F';
-};
-
-const gradeToPoints = (l) => ({
-  'A+':4.0,'A':4.0,'A-':3.7,'B+':3.3,'B':3.0,'B-':2.7,
-  'C+':2.3,'C':2.0,'C-':1.7,'D':1.0,'F':0.0,
-}[l] || 0);
 
 // POST /api/grades/exams — Create exam
 const createExam = async (req, res) => {
@@ -142,15 +124,12 @@ const enterGrades = async (req, res) => {
     let saved = 0;
     for (const g of grades) {
       if (g.student_id && g.score !== undefined && g.score !== null) {
-        const pct    = (parseFloat(g.score) / parseFloat(exam.max_score)) * 100;
-        const letter = percentageToGrade(pct);
-
         await db.query(
-          `INSERT INTO grades (exam_id, student_id, score, grade_letter, remarks)
-           VALUES ($1,$2,$3,$4,$5)
+          `INSERT INTO grades (exam_id, student_id, score, remarks)
+           VALUES ($1,$2,$3,$4)
            ON CONFLICT (exam_id, student_id)
-           DO UPDATE SET score=$3, grade_letter=$4, remarks=$5, entered_at=NOW()`,
-          [exam_id, g.student_id, parseFloat(g.score), letter, g.remarks || null]
+           DO UPDATE SET score=$3, grade_letter=NULL, remarks=$4, entered_at=NOW()`,
+          [exam_id, g.student_id, parseFloat(g.score), g.remarks || null]
         );
         saved++;
       }
@@ -164,11 +143,36 @@ const enterGrades = async (req, res) => {
   }
 };
 
-// GET /api/grades/report-card/:studentId
+// GET /api/grades/exams/:examId — one exam with the scores entered so far (G1)
+// Admin, principal: any exam. Teacher: own class + subject.
+const getExamGrades = async (req, res) => {
+  try {
+    const { rows: ex } = await db.query(
+      `SELECT e.*, c.name AS class_name, c.grade_level, c.section, s.name AS subject_name, s.name_am AS subject_name_am
+       FROM exams e JOIN classes c ON c.id = e.class_id JOIN subjects s ON s.id = e.subject_id WHERE e.id = $1`, [req.params.examId]);
+    if (!ex[0]) return sendError(res, 'Exam not found.', 404);
+    if (req.user.role === 'teacher' && !(await getAssignedTeacherId(req.user.id, ex[0].class_id, ex[0].subject_id))) {
+      return sendError(res, NOT_ASSIGNED, 403);
+    }
+    const { rows: grades } = await db.query(
+      `SELECT g.id, g.student_id, g.score, g.remarks, g.entered_at, g.updated_at,
+              s.student_number, s.first_name, s.fathers_name, s.last_name, s.first_name_am, s.fathers_name_am, s.last_name_am
+       FROM grades g JOIN students s ON s.id = g.student_id WHERE g.exam_id = $1
+       ORDER BY s.first_name, s.last_name`, [ex[0].id]);
+    const { grade_letter: _gl, ...exam } = ex[0];
+    return sendSuccess(res, { exam, grades }, `${grades.length} score(s) entered.`);
+  } catch (err) {
+    return sendServerError(res, err, 'Server error.');
+  }
+};
+
+// GET /api/grades/report-card/:studentId?semester=1|2&academic_year_id=
+const PROMOTION_LABEL = { promoted: 'Promoted', not_promoted: 'Not promoted', pending: 'Promotion pending' };
 const getReportCard = async (req, res) => {
   try {
     const { studentId } = req.params;
     const sf = semesterFilter(req.query);
+    if (sf.error) return sendError(res, sf.error, 400, { field: 'semester' });
 
     const { rows: stuRows } = await db.query(
       `SELECT s.*, c.name AS class_name, c.grade_level, c.section,
@@ -180,42 +184,22 @@ const getReportCard = async (req, res) => {
     );
     if (!stuRows[0]) return sendError(res, 'Student not found.', 404);
 
-    if (sf.error) return sendError(res, sf.error, 400, { field: 'semester' });
-    const termFilter = sf.semester ? 'AND e.semester = $2' : '';
-    const gradeParams = sf.semester ? [studentId, sf.semester] : [studentId];
-    const { rows: gradeRows } = await db.query(
-      `SELECT s.name AS subject, e.term, e.semester, e.exam_type, e.max_score,
-              g.score, g.grade_letter,
-              ROUND((g.score/e.max_score)*100,1) AS percentage
-       FROM grades g
-       JOIN exams    e ON e.id=g.exam_id
-       JOIN subjects s ON s.id=e.subject_id
-       WHERE g.student_id=$1 ${termFilter}
-       ORDER BY s.name, e.exam_type`, gradeParams
-    );
-
-    // Group by subject
-    const subjectMap = {};
-    gradeRows.forEach(row => {
-      if (!subjectMap[row.subject]) {
-        subjectMap[row.subject] = { subject:row.subject, exams:[], average:0, grade_letter:'', grade_points:0 };
-      }
-      subjectMap[row.subject].exams.push(row);
-    });
-
-    const subjects = Object.values(subjectMap).map(sub => {
-      const total    = sub.exams.reduce((s,e)=>s+parseFloat(e.score),0);
-      const maxTotal = sub.exams.reduce((s,e)=>s+parseFloat(e.max_score),0);
-      const avg      = maxTotal > 0 ? (total/maxTotal)*100 : 0;
-      sub.average      = avg.toFixed(1);
-      sub.grade_letter = percentageToGrade(avg);
-      sub.grade_points = gradeToPoints(sub.grade_letter);
-      return sub;
-    });
-
-    const gpa = subjects.length
-      ? (subjects.reduce((s,sub)=>s+sub.grade_points,0)/subjects.length).toFixed(2)
-      : '0.00';
+    let results = null;
+    try {
+      results = await studentResults(studentId, req.query.academic_year_id);
+    } catch (err) {
+      if (!(err instanceof ResultsError) || err.status !== 404) throw err;   // no class / no results yet
+    }
+    const sem = results && sf.semester ? results.semesters[sf.semester] : null;
+    const rows = !results ? [] : sem ? sem.subjects : results.year.subjects;
+    const subjects = rows.map((x) => ({
+      subject: x.name, subject_am: x.name_am, score: x.score,
+      max_entered: x.max_total ?? null, complete: x.complete ?? null,
+      average: x.score === null ? null : Number(x.score).toFixed(1),   // the subject score is out of 100
+      grade_letter: '—', grade_points: null,
+    }));
+    const part = sem || results?.year;
+    const promotion = !sem ? results?.year.promotion : null;
 
     const { rows: att } = await db.query(
       `SELECT COUNT(*) AS total_days,
@@ -230,10 +214,14 @@ const getReportCard = async (req, res) => {
       student: stuRows[0],
       subjects,
       academic_summary: {
-        gpa,
-        result: parseFloat(gpa) >= 2.0 ? 'PASS' : 'FAIL',
+        gpa: '—',
+        average: part?.average ?? null,
+        rank: part?.rank ?? null,
+        total_in_class: part?.ranked_count ?? null,
+        result: promotion ? PROMOTION_LABEL[promotion.status] : '—',
       },
       attendance: att[0],
+      results,
     }, 'Report card retrieved.');
 
   } catch (err) {
@@ -241,4 +229,4 @@ const getReportCard = async (req, res) => {
   }
 };
 
-module.exports = { createExam, getExams, enterGrades, getReportCard };
+module.exports = { createExam, getExams, getExamGrades, enterGrades, getReportCard };

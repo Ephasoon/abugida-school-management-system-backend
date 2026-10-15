@@ -4,6 +4,7 @@ const router  = express.Router();
 const {
   createExam,
   getExams,
+  getExamGrades,
   enterGrades,
   getReportCard,
 } = require('../controllers/grade.controller');
@@ -20,6 +21,7 @@ const checkIds = validateIds();   // malformed/unknown ids -> 404 (after role + 
 // Exams
 router.post('/exams', teacherOrAdmin, validateBodyIds({ class_id: 'classes', subject_id: 'subjects' }), createExam);   // deprecated: use POST /api/exam-schedule
 router.get ('/exams', allStaff,       getExams);   // teachers: own classes only
+router.get ('/exams/:examId', allStaff, checkIds, getExamGrades);   // G1: one exam + scores entered (teacher: own class+subject)
 
 // Grades
 router.post('/',                        teacherOrAdmin, validateBodyIds({ exam_id: 'exams', 'grades[].student_id': 'students' }), enterGrades);

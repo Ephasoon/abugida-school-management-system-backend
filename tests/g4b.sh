@@ -6,7 +6,7 @@ g(){ node -p "require('$F').$1"; }
 tok(){ js "$(req POST /auth/login "" "{\"email\":\"$1\",\"password\":\"$2\"}")" "r.data.accessToken"; }
 AT=$(tok admin@asms.et Admin@1234); TA=$(tok $(g tA.email) Pass#2026); TB=$(tok $(g tB.email) Pass#2026)
 TID=$(g tB.tid); C9B=$(g c9B); ENG=$(g eng)
-exam(){ code "$(req POST /grades/exams "$1" "{\"class_id\":\"$C9B\",\"subject_id\":\"$ENG\",\"name\":\"Eng quiz\",\"exam_type\":\"quiz\",\"term\":\"term1\"}")"; }
+exam(){ code "$(req POST /grades/exams "$1" "{\"class_id\":\"$C9B\",\"subject_id\":\"$ENG\",\"name\":\"Eng quiz\",\"exam_type\":\"quiz\",\"term\":\"term1\",\"max_score\":1}")"; }
 echo "== Assign, list, remove"
 ok $(exam "$TB") 403 "teacher B creates 9B English exam before assignment"
 ok $(code "$(req POST /teachers/$TID/classes "$AT" "{\"class_id\":\"$C9B\",\"subject_id\":\"$ENG\"}")") 200 "admin assigns B -> 9B English"

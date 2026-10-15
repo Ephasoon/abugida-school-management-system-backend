@@ -21,6 +21,7 @@ const analyticsRoutes    = require('./routes/analytics.routes');
 const documentRoutes     = require('./routes/document.routes');
 const accountRoutes      = require('./routes/accounts.routes');
 const dashboardRoutes    = require('./routes/dashboard.routes');
+const resultsRoutes      = require('./routes/results.routes');
 const { sendServerError } = require('./utils/errors');
 
 const app = express();
@@ -64,6 +65,8 @@ app.use('/api/analytics',      analyticsRoutes);
 app.use('/api/documents',      documentRoutes);
 app.use('/api/accounts',       accountRoutes);
 app.use('/api/dashboard',      dashboardRoutes);
+app.use('/api/results',        resultsRoutes.results);
+app.use('/api/settings',       resultsRoutes.settings);
 
 app.use((req, res) => res.status(404).json({
   success:false, message:`Route not found: ${req.method} ${req.originalUrl}`

@@ -5,6 +5,10 @@
 //   POST /api/grades/exams   (deprecated alias: date optional)
 //   PUT  /api/exam-schedule/:id (admin)
 //
+// Max scores (D25): one subject's assessments in one class and semester add up to at most 100.
+// Checked inside the write's transaction under an advisory lock on (class, subject, semester),
+// so two exams saved at the same moment can't pass it together.
+//
 // Semester (B1): an exam with a date gets the semester of that date, which must lie inside
 // its class's academic year; `semester` sent with a date must agree with it. Without a date,
 // `semester` (1|2) or the old `term` (mapped) is required. The exam's year is its class's.
@@ -19,6 +23,7 @@ const db = require('../config/db');
 const { validateMaxScore } = require('../utils/examRules');
 const { TERMS, TERM_TO_SEMESTER, SEMESTER_TO_TERM, parseSemester, semesterOfDate, semesterNumber } = require('../utils/semesters');
 const { isIsoDate } = require('../utils/attendance');
+const { inTransaction } = require('../utils/transaction');
 
 const EXAM_TYPES = ['quiz', 'midterm', 'final', 'assignment', 'project'];
 
@@ -59,6 +64,26 @@ const decideSemester = (year, { semester, term, exam_date }) => {
   }
   if (term) return { semester: TERM_TO_SEMESTER[term], term };
   throw new ExamError(400, 'semester (1 or 2) is required for an exam without a date.', { field: 'semester' });
+};
+
+const fmt = (n) => Number(Number(n).toFixed(2));
+
+/**
+ * D25: refuse (400) when the subject's max scores in this class and semester would exceed 100.
+ * Call inside the transaction that writes the exam; excludeExamId: the exam being edited.
+ */
+const assertMaxTotal = async (client, { cls, subjectId, subjectName, semester, maxScore, excludeExamId = null }) => {
+  await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`exam-max:${cls.id}:${subjectId}:${semester}`]);
+  const { rows } = await client.query(
+    `SELECT COALESCE(SUM(max_score), 0) AS used FROM exams
+     WHERE class_id = $1 AND subject_id = $2 AND semester = $3 AND ($4::uuid IS NULL OR id <> $4)`,
+    [cls.id, subjectId, semester, excludeExamId]);
+  const used = fmt(rows[0].used), total = fmt(used + Number(maxScore));
+  if (total > 100) {
+    throw new ExamError(400,
+      `${subjectName}, ${cls.name}, semester ${semesterNumber(semester)}: max scores would total ${total} (already ${used} + this ${fmt(maxScore)}). The limit is 100.`,
+      { field: 'max_score', used, remaining: fmt(Math.max(0, 100 - used)), limit: 100 });
+  }
 };
 
 /**
@@ -118,6 +143,7 @@ const createExam = async (user, input, { requireDate = false } = {}) => {
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
+    await assertMaxTotal(client, { cls, subjectId: sub[0].id, subjectName: sub[0].name, semester: sem.semester, maxScore: max_score });
     const { rows: exam } = await client.query(
       `INSERT INTO exams
          (class_id, subject_id, academic_year_id, name, exam_type, term, semester, max_score, exam_date, created_by)
@@ -156,23 +182,30 @@ const updateExam = async (id, input) => {
 
   const { rows: cur } = await db.query('SELECT * FROM exams WHERE id::text = $1', [String(id)]);
   if (!cur[0]) throw new ExamError(404, 'Exam not found.');
+  const cls = await loadClassYear(db, cur[0].class_id);
   let sem = { semester: cur[0].semester, term: cur[0].term };
   if (exam_date !== undefined || semester !== undefined || term !== undefined) {
-    const year = await loadClassYear(db, cur[0].class_id);
-    sem = decideSemester(year, { semester, term, exam_date: exam_date ?? cur[0].exam_date });
+    sem = decideSemester(cls, { semester, term, exam_date: exam_date ?? cur[0].exam_date });
   }
+  const subjectName = (await db.query('SELECT name FROM subjects WHERE id = $1', [cur[0].subject_id])).rows[0]?.name ?? 'Subject';
 
-  const { rows } = await db.query(
-    `UPDATE exams SET
-       name      = COALESCE($1, name),
-       exam_date = COALESCE($2, exam_date),
-       exam_type = COALESCE($3, exam_type),
-       term      = $4,
-       semester  = $5,
-       max_score = COALESCE($6, max_score)
-     WHERE id = $7 RETURNING *`,
-    [name === undefined ? null : String(name).trim(), exam_date ?? null, exam_type ?? null, sem.term, sem.semester, max_score ?? null, cur[0].id]);
-  return rows[0];
+  return inTransaction(async (client) => {
+    if (max_score !== undefined || sem.semester !== cur[0].semester) {
+      await assertMaxTotal(client, { cls, subjectId: cur[0].subject_id, subjectName, semester: sem.semester,
+        maxScore: max_score ?? cur[0].max_score, excludeExamId: cur[0].id });
+    }
+    const { rows } = await client.query(
+      `UPDATE exams SET
+         name      = COALESCE($1, name),
+         exam_date = COALESCE($2, exam_date),
+         exam_type = COALESCE($3, exam_type),
+         term      = $4,
+         semester  = $5,
+         max_score = COALESCE($6, max_score)
+       WHERE id = $7 RETURNING *`,
+      [name === undefined ? null : String(name).trim(), exam_date ?? null, exam_type ?? null, sem.term, sem.semester, max_score ?? null, cur[0].id]);
+    return rows[0];
+  });
 };
 
-module.exports = { createExam, updateExam, decideSemester, loadClassYear, ExamError, EXAM_TYPES, TERMS };
+module.exports = { createExam, updateExam, decideSemester, loadClassYear, assertMaxTotal, ExamError, EXAM_TYPES, TERMS };

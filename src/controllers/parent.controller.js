@@ -31,10 +31,15 @@ const verifyParentChild = async (parentUserId, studentId) => {
   return rows.length > 0;
 };
 
-const gradeToPoints = (l) => ({
-  'A+':4.0,'A':4.0,'A-':3.7,'B+':3.3,'B':3.0,'B-':2.7,
-  'C+':2.3,'C':2.0,'C-':1.7,'D':1.0,'F':0.0,
-}[l] || 0);
+const { studentResults, ResultsError } = require('../services/results.service');
+
+// The child's results (B2), or null when there are none yet (no class, no scores)
+const resultsOrNull = async (studentId) => {
+  try { return await studentResults(studentId); } catch (err) {
+    if (err instanceof ResultsError && err.status === 404) return null;
+    throw err;
+  }
+};
 
 
 // ── GET /api/parent/profile ──────────────────────────────────
@@ -105,7 +110,7 @@ const getChildSummary = async (req, res) => {
 
     // Recent 5 grades
     const { rows: grades } = await db.query(
-      `SELECT g.score, g.grade_letter, e.max_score,
+      `SELECT g.score, NULL::text AS grade_letter, e.max_score,
               s.name AS subject, e.term, e.semester, e.exam_type, e.exam_date
        FROM grades g
        JOIN exams e ON e.id=g.exam_id
@@ -122,11 +127,21 @@ const getChildSummary = async (req, res) => {
        FROM payments WHERE student_id=$1`, [studentId]
     );
 
+    // Semester and yearly averages and ranks (B2) instead of a GPA
+    const r = await resultsOrNull(studentId);
+    const pick = (x) => (x ? { average: x.average, rank: x.rank, ranked_count: x.ranked_count, class_size: x.class_size } : null);
+    const results = r && {
+      academic_year: r.academic_year, class: r.class,
+      semester1: pick(r.semesters.semester1), semester2: pick(r.semesters.semester2),
+      year: { ...pick(r.year), promotion: r.year.promotion },
+    };
+
     return sendSuccess(res, {
       student:       stu[0],
       attendance:    att[0],
       recent_grades: grades,
       fees:          fees[0],
+      results,
     }, 'Summary retrieved.');
   } catch (err) {
     return sendServerError(res, err, 'Server error.');
@@ -142,7 +157,7 @@ const getChildGrades = async (req, res) => {
     if (!owns) return sendError(res, 'Access denied.', 403);
 
     const { rows } = await db.query(
-      `SELECT g.score, g.grade_letter, g.remarks,
+      `SELECT g.score, NULL::text AS grade_letter, g.remarks,
               e.name AS exam_name, e.exam_type, e.term, e.semester, e.max_score, e.exam_date,
               s.name AS subject_name,
               ROUND((g.score/e.max_score)*100,1) AS percentage
@@ -161,14 +176,11 @@ const getChildGrades = async (req, res) => {
       bySubject[r.subject_name].exams.push(r);
     });
 
-    const gpa = rows.length
-      ? (rows.map(r=>gradeToPoints(r.grade_letter))
-             .reduce((a,b)=>a+b,0) / rows.length).toFixed(2)
-      : '0.00';
-
+    // No GPA since B2: the results (semester and yearly scores, averages, ranks) instead
     return sendSuccess(res, {
-      gpa, total_exams: rows.length,
+      gpa: '—', total_exams: rows.length,
       by_subject: Object.values(bySubject),
+      results: await resultsOrNull(studentId),
     }, 'Grades retrieved.');
   } catch (err) {
     return sendServerError(res, err, 'Server error.');

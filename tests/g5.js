@@ -72,7 +72,7 @@ async function uiLogin(page, base, email, password) {
     const opts = await A.eval(`['a_teacher','a_class','a_subject'].map(id=>document.getElementById(id).options.length)`);
     ok(opts.every(n => n > 1), 'teacher/class/subject dropdowns populated', JSON.stringify(opts));
     const tB = await apiLogin(G.tB.email, 'Pass#2026');
-    const exam = (cls, sub) => call('POST', '/grades/exams', tB, { class_id: cls, subject_id: sub, name: 'UI-assign check', exam_type: 'quiz', term: 'term1' });
+    const exam = (cls, sub) => call('POST', '/grades/exams', tB, { class_id: cls, subject_id: sub, name: 'UI-assign check', exam_type: 'quiz', term: 'term1', max_score: 1 });
     ok((await exam(G.c9B, G.eng)).status === 403, 'before: teacher B cannot create 9B English exam');
     await A.eval(`document.getElementById('a_teacher').value=${JSON.stringify(G.tB.tid)};
                   document.getElementById('a_class').value=${JSON.stringify(G.c9B)};
@@ -83,10 +83,10 @@ async function uiLogin(page, base, email, password) {
     console.log('     table:', tableText.replace(/\s*Remove\s*/g, ' | ').replace(/\s+/g, ' ').trim());
     const e1 = await exam(G.c9B, G.eng);
     ok(e1.status === 201, 'after: teacher B creates 9B English exam');
-    ok((await call('POST', '/grades', tB, { exam_id: e1.body.data.id, grades: [{ student_id: G.s3.sid, score: 77 }] })).status === 200, 'after: teacher B enters grade for 9B student');
+    ok((await call('POST', '/grades', tB, { exam_id: e1.body.data.id, grades: [{ student_id: G.s3.sid, score: 0.77 }] })).status === 200, 'after: teacher B enters grade for 9B student');
     ok((await exam(G.c9A, G.eng)).status === 403, 'still blocked: 9A English');
     ok((await exam(G.c9B, G.math)).status === 403, 'still blocked: 9B Math');
-    ok((await call('POST', '/grades', tB, { exam_id: e1.body.data.id, grades: [{ student_id: G.s1.sid, score: 50 }] })).status === 403, 'still blocked: grade for a 9A student on that exam');
+    ok((await call('POST', '/grades', tB, { exam_id: e1.body.data.id, grades: [{ student_id: G.s1.sid, score: 0.5 }] })).status === 403, 'still blocked: grade for a 9A student on that exam');
     A.dialogs.length = 0;
     await A.eval(`[...document.querySelectorAll('#assignmentsBody tr')].find(tr=>tr.innerText.includes('English') && tr.innerText.includes('9 Section B'))?.querySelector('button')?.click(); true`);
     ok(await A.waitFor(`![...document.querySelectorAll('#assignmentsBody tr')].some(tr=>tr.innerText.includes('English') && tr.innerText.includes('9 Section B'))`), 'Remove (after confirm dialog) deletes the row', `dialog: ${A.dialogs[0] || 'none'}`);

@@ -514,6 +514,8 @@ change old results):**
 | `PUT /classes/:classId/homeroom` (new, part of G2) | A | `{ teacher_id }` |
 | `GET /results/locks?academic_year_id=`, `POST /results/locks`, `DELETE /results/locks/:id` (new) | A (P read) | lock / unlock a semester (whole school or one class), audited |
 
+**Built (M5a B, 2026-10-16, migration 021):** `services/results.service.js` as above (ranks computed in the service with the same competition rule; hundredths as integers so sums don't drift). A subject is complete for a student when its max scores add up to exactly 100 and every assessment has a score; over 100 shows `over_100`. Students of a class are its active students plus anyone with a score in its exams. `GET /results/class/:classId?semester=1|2|year`, `GET /results/student/:studentId?academic_year_id=`, `GET /settings`, `PUT /settings/:key` (`{ value }`, audited `settings.updated`), G1 `GET /grades/exams/:examId`. The report card, parent summary and grades return the results; during the transition `gpa` and `grade_letter` are "—" (the old `student-detail.html` would show "0.00" for `null`). `/analytics/grades` returns `score_bands` per semester; `grade_dist` stays, empty. D25 is checked in `exam.service.js` under `pg_advisory_xact_lock` per class, subject and semester.
+
 **Tests:** a new suite with fixed fixtures covers:
 - totals, averages, both semesters, the yearly figures
 - ties (1, 2, 2, 4) and incomplete students

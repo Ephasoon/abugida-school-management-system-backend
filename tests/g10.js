@@ -24,7 +24,7 @@ const NONE = '00000000-0000-0000-0000-000000000000';
     student: await login(G.s1.email, 'Pass#2026'), parent: await login(G.parent.email, 'Pass#2026'),
   };
   const ENDPOINTS = { 'POST /grades/exams': '/grades/exams', 'POST /exam-schedule': '/exam-schedule' };
-  const body = (cls, sub, extra = {}) => ({ class_id: cls, subject_id: sub, name: 'G10 exam', exam_type: 'quiz', term: 'term1', exam_date: nextDate(), ...extra });
+  const body = (cls, sub, extra = {}) => ({ class_id: cls, subject_id: sub, name: 'G10 exam', exam_type: 'quiz', term: 'term1', exam_date: nextDate(), max_score: 1, ...extra });
 
   // ── Same rule on both endpoints ──
   const cases = [
@@ -68,7 +68,7 @@ const NONE = '00000000-0000-0000-0000-000000000000';
   ok(viaSched.body.data.class_name === 'Grade 9 Section A' && viaSched.body.data.room === 'Hall', 'exam-schedule response includes class_name and schedule fields');
 
   console.log('== Endpoint-specific behaviour');
-  const noDate = (p) => call(T.admin, 'POST', p, { class_id: G.c9A, subject_id: G.math, name: 'G10 undated', exam_type: 'assignment', term: 'term1' });
+  const noDate = (p) => call(T.admin, 'POST', p, { class_id: G.c9A, subject_id: G.math, name: 'G10 undated', exam_type: 'assignment', term: 'term1', max_score: 1 });
   ok((await noDate('/exam-schedule')).status === 400, 'exam-schedule requires exam_date');
   ok((await noDate('/grades/exams')).status === 201, 'grades/exams allows an undated exam (e.g. assignment)');
   const conflictDate = nextDate();
