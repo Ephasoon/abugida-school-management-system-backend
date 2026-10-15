@@ -12,15 +12,15 @@ echo "  server TZ check: $(node -e "console.log(Intl.DateTimeFormat().resolvedOp
 echo "== Exam schedules persist (migration 011), atomically"
 # Re-runnable: cancel a "Final G4" left by an earlier run (one final per class/subject/term).
 # Only its date is listed: the whole list can grow past the command-line limit of js().
-for old in $(js "$(req GET "/exam-schedule?class_id=$C9A&from_date=2026-11-20&to_date=2026-11-20" "$AT")" "r.data.filter(e=>e.name==='Final G4').map(e=>e.id).join(' ')"); do
+for old in $(js "$(req GET "/exam-schedule?class_id=$C9A&from_date=2025-03-20&to_date=2025-03-20" "$AT")" "r.data.filter(e=>e.name==='Final G4').map(e=>e.id).join(' ')"); do
   echo "  cancel leftover Final G4: $(code "$(req DELETE /exam-schedule/$old "$AT")")"
 done
-R=$(req POST /exam-schedule "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"Final G4\",\"exam_type\":\"final\",\"term\":\"term2\",\"exam_date\":\"2026-11-20\",\"start_time\":\"08:30\",\"end_time\":\"10:30\",\"room\":\"Lab 2\",\"instructions\":\"Bring a calculator\"}")
+R=$(req POST /exam-schedule "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"Final G4\",\"exam_type\":\"final\",\"term\":\"term2\",\"exam_date\":\"2025-03-20\",\"start_time\":\"08:30\",\"end_time\":\"10:30\",\"room\":\"Lab 2\",\"instructions\":\"Bring a calculator\"}")
 ok $(code "$R") 201 "schedule exam with time/room"; EID=$(js "$R" "r.data.id")
 echo "  exam_schedules row: $(q "SELECT start_time,end_time,room,instructions FROM exam_schedules WHERE exam_id=\$1" $EID)"
-ok $(code "$(req POST /exam-schedule "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"Bad time\",\"exam_type\":\"quiz\",\"term\":\"term2\",\"exam_date\":\"2026-11-21\",\"start_time\":\"10:00\",\"end_time\":\"09:00\"}")") 400 "end_time before start_time"
+ok $(code "$(req POST /exam-schedule "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"Bad time\",\"exam_type\":\"quiz\",\"term\":\"term2\",\"exam_date\":\"2025-03-21\",\"start_time\":\"10:00\",\"end_time\":\"09:00\"}")") 400 "end_time before start_time"
 LONG=$(printf 'R%.0s' $(seq 1 60))
-R=$(req POST /exam-schedule "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"Atomic check\",\"exam_type\":\"quiz\",\"term\":\"term2\",\"exam_date\":\"2026-11-22\",\"start_time\":\"08:00\",\"end_time\":\"09:00\",\"room\":\"$LONG\"}")
+R=$(req POST /exam-schedule "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"Atomic check\",\"exam_type\":\"quiz\",\"term\":\"term2\",\"exam_date\":\"2025-03-22\",\"start_time\":\"08:00\",\"end_time\":\"09:00\",\"room\":\"$LONG\"}")
 ok $(code "$R") 500 "schedule insert fails (room > 50 chars) -> error surfaces"
 echo "  exam row left behind: $(q "SELECT count(*) FROM exams WHERE name='Atomic check'")"
 
@@ -62,6 +62,6 @@ echo "  decoded filename*: $(node -e "const h=require('fs').readFileSync(process
 echo "== DATE columns as YYYY-MM-DD (server TZ Africa/Addis_Ababa)"
 q "UPDATE students SET date_of_birth='2010-05-03', enrollment_date='2026-09-01' WHERE id=\$1 RETURNING id" $S1 >/dev/null
 echo "  student: $(js "$(req GET /students/$S1 "$AT")" "JSON.stringify({dob:r.data.date_of_birth,enrolled:r.data.enrollment_date})")"
-echo "  exam:    $(js "$(req GET "/exam-schedule?class_id=$C9A&from_date=2026-11-20&to_date=2026-11-20" "$AT")" "JSON.stringify(r.data.filter(e=>e.name==='Final G4').map(e=>e.exam_date))")"
+echo "  exam:    $(js "$(req GET "/exam-schedule?class_id=$C9A&from_date=2025-03-20&to_date=2025-03-20" "$AT")" "JSON.stringify(r.data.filter(e=>e.name==='Final G4').map(e=>e.exam_date))")"
 echo "  calendar keys Nov 2026: $(js "$(req GET "/exam-schedule/calendar?month=11&year=2026" "$AT")" "Object.keys(r.data.by_date).join(',')")"
 echo "  attendance: $(js "$(req GET /attendance/student/7fc8ff6c-f082-4f54-a015-df0bb49ae61a "$AT")" "r.data.records.map(x=>x.date).join(',')")  (stored as 2026-10-01, 2026-10-02)"

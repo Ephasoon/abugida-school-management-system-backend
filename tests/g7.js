@@ -106,7 +106,7 @@ const check = (cond, label, extra = '') => { if (cond) pass++; else { fail++; fa
     ['GET', '/exam-schedule/calendar', null, { principal: ok, tA: ok, student: ok }],
     ['GET', `/exam-schedule/class/${C9A}`, null, { tA: ok, tB: no, student: ok, parent: ok }],
     ['GET', `/exam-schedule/class/${C9B}`, null, { tA: no, student: no, parent: no, principal: ok }],
-    ['POST', '/exam-schedule', { class_id: C9A, subject_id: G.math, name: 'p', exam_type: 'quiz', term: 'term1', exam_date: '2026-12-01' }, { principal: no, tA: created, tB: no, student: no }],   // own class+subject (Phase 1 addition)
+    ['POST', '/exam-schedule', { class_id: C9A, subject_id: G.math, name: 'p', exam_type: 'quiz', term: 'term1', exam_date: '2025-03-12' }, { principal: no, tA: created, tB: no, student: no }],   // own class+subject (Phase 1 addition)
     // Documents
     ['GET', '/documents', null, { admin: ok, principal: ok, tA: ok, student: no, parent: no }],
     ['GET', '/documents/categories', null, { principal: ok, student: no }],

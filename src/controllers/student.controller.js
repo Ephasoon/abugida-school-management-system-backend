@@ -445,6 +445,7 @@ const getStudentSummary = async (req, res) => {
          sub.name  AS subject,
          e.name    AS exam_name,
          e.term,
+         e.semester,
          e.exam_date
        FROM grades g
        JOIN exams    e   ON e.id   = g.exam_id
