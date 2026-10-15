@@ -179,6 +179,12 @@ const updateAcademicYear = async (req, res) => {
       end_date: end_date ?? current[0].end_date,
       semester2_start: semester2_start ?? current[0].semester2_start,
     };
+    // New dates without a semester2_start (e.g. the old frontend): keep the current start if it
+    // still lies inside them, else use the default for the new end date
+    if (semester2_start === undefined && semester2Error(after.semester2_start, after.start_date, after.end_date)
+        && isIsoDate(after.start_date) && isIsoDate(after.end_date) && after.end_date > after.start_date) {
+      after.semester2_start = await defaultSemester2(db, after.end_date);
+    }
     const dateError = dateRangeError(after.start_date, after.end_date);
     if (dateError) return sendError(res, dateError, 400);
     const badName = nameError(after.name, after.start_date);
