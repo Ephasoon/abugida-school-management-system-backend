@@ -138,12 +138,14 @@ const getTeachers = async (req, res) => {
          u.email,
          ARRAY_AGG(DISTINCT s.name) FILTER (WHERE s.name IS NOT NULL) AS subjects,
          ARRAY_AGG(DISTINCT s.id)   FILTER (WHERE s.id   IS NOT NULL) AS subject_ids,
-         COUNT(DISTINCT tc.class_id) AS class_count
+         COUNT(DISTINCT cc.id) AS class_count  -- classes of the current year
        FROM teachers t
        LEFT JOIN users            u  ON u.id  = t.user_id
        LEFT JOIN teacher_subjects ts ON ts.teacher_id = t.id
        LEFT JOIN subjects         s  ON s.id  = ts.subject_id
        LEFT JOIN teacher_classes  tc ON tc.teacher_id = t.id
+       LEFT JOIN classes          cc ON cc.id = tc.class_id
+                                    AND cc.academic_year_id = (SELECT id FROM academic_years WHERE is_current)
        ${where}
        GROUP BY t.id, u.email
        ORDER BY t.created_at DESC`,
@@ -183,6 +185,7 @@ const getTeacherById = async (req, res) => {
               s.name_am AS subject_name_am
        FROM teacher_classes tc
        JOIN classes  c ON c.id = tc.class_id
+       JOIN academic_years ay ON ay.id = c.academic_year_id AND ay.is_current  -- this year's classes (M7a)
        JOIN subjects s ON s.id = tc.subject_id
        WHERE tc.teacher_id = $1 ORDER BY c.grade_level, c.section`, [id]
     );

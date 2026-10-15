@@ -13,6 +13,7 @@ const db            = require('../config/db');
 const { sendSuccess,
         sendError } = require('../utils/response');
 const { sendServerError } = require('../utils/errors');
+const { isUuid }          = require('../middleware/validateIds.middleware');
 
 // Days and periods config
 const DAYS    = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -253,14 +254,26 @@ const deleteSlot = async (req, res) => {
 
 // ── GET /api/timetable/classes ───────────────────────────────
 // List all classes (for dropdown in timetable builder)
+// The classes of the current year by default, so class pickers don't show
+// last year's "Grade 9 Section A" next to this year's (M7a). ?academic_year_id=
+// for another year, ?all=true for every year.
 const getClasses = async (req, res) => {
   try {
+    const { academic_year_id, all } = req.query;
+    if (academic_year_id && !isUuid(academic_year_id)) {
+      return sendError(res, 'academic_year_id does not exist.', 400, { field: 'academic_year_id' });
+    }
+    const where = all === 'true' ? '' : academic_year_id
+      ? 'WHERE c.academic_year_id = $1'
+      : 'WHERE c.academic_year_id = (SELECT id FROM academic_years WHERE is_current)';
     const { rows } = await db.query(
-      `SELECT c.id, c.name, c.grade_level, c.section,
+      `SELECT c.id, c.name, c.grade_level, c.section, c.academic_year_id,
               t.first_name || ' ' || t.last_name AS homeroom_teacher
        FROM classes c
        LEFT JOIN teachers t ON t.id = c.homeroom_teacher_id
-       ORDER BY c.grade_level, c.section`
+       ${where}
+       ORDER BY c.grade_level, c.section`,
+      all !== 'true' && academic_year_id ? [academic_year_id] : []
     );
     return sendSuccess(res, rows, `${rows.length} class(es) found.`);
   } catch (err) {

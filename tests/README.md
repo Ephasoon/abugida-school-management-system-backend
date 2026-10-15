@@ -71,6 +71,7 @@ cmd.exe is usually WSL's. Set `GIT_BASH` if Git is installed somewhere unusual.
 | g19 | Phase 2 G9: backend Ethiopian date converter against the shared vectors (same file as asms-web, every day 1900–2100); student and teacher ID cards print the Amharic name and Ethiopian dates (text extracted with pdfjs-dist), Noto Sans Ethiopic embedded, no Helvetica; report card still renders |
 | g20 | Phase 2 M3: students list (status=all, filters combine, bad status / gender / class_id 400, teachers own classes only, paging) and student edit (only fields sent change, optional fields incl. class and birth date cleared, names not emptied, bad values 400, audited), archive |
 | g21 | Phase 2 M7a: academic years: name YYYY/YYYY matching the start year, end after start, duplicates 409 (create and edit), activate in one transaction with its audit entry, delete only an unused year; principal 403 |
+| g22 | Phase 2 M7a (G2): classes per year: list (default current year), create and edit (grade, section, capacity, homeroom teacher; 409 duplicates; year fixed; audited), copy classes from another year (idempotent, no students, optional homerooms and teacher assignments); class lists, teacher dashboard and profile show the current year only |
 | w1 | asms-web: type check, lint and unit tests (`npm test`: Vitest) |
 | w2 | asms-web: browser tests (Playwright in Edge) of the built app on :5600 against this test backend: login and sessions, menus per role, Ethiopian date picker, admin account screens |
 
