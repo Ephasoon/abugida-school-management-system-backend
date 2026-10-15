@@ -15,6 +15,8 @@ const {
 } = require('../services/pdf.service');
 const { sendError } = require('../utils/response');
 const { sendServerError } = require('../utils/errors');
+const { rateSql } = require('../utils/attendance');
+const RATE   = rateSql();   // attendance rate (M4): late attended, excused left out
 
 const VALID_TERMS = ['term1', 'term2', 'term3'];
 
@@ -96,7 +98,7 @@ const getReportCardPDF = async (req, res) => {
               COUNT(*) FILTER (WHERE status='present') AS present,
               COUNT(*) FILTER (WHERE status='absent')  AS absent,
               COUNT(*) FILTER (WHERE status='late')    AS late,
-              ROUND(COUNT(*) FILTER(WHERE status='present')*100.0/NULLIF(COUNT(*),0),1) AS rate
+              ${RATE} AS rate
        FROM attendance WHERE student_id = $1`,
       [studentId]
     );

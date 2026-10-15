@@ -2,6 +2,9 @@
 const db            = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
 const { sendServerError } = require('../utils/errors');
+const { rateSql } = require('../utils/attendance');
+const RATE   = rateSql();   // attendance rate (M4): late attended, excused left out
+const RATE_A = rateSql('a');   // attendance rate (M4): late attended, excused left out
 
 // GET /api/analytics/overview
 const getOverview = async (req, res) => {
@@ -23,11 +26,11 @@ const getOverview = async (req, res) => {
          COUNT(*) FILTER(WHERE status='present') AS present,
          COUNT(*) FILTER(WHERE status='absent')  AS absent,
          COUNT(*) FILTER(WHERE status='late')    AS late,
-         ROUND(COUNT(*) FILTER(WHERE status='present')*100.0/NULLIF(COUNT(*),0),1) AS rate
+         ${RATE} AS rate
        FROM attendance WHERE date=CURRENT_DATE`
     );
     const { rows: attMonth } = await db.query(
-      `SELECT ROUND(COUNT(*) FILTER(WHERE status='present')*100.0/NULLIF(COUNT(*),0),1) AS rate
+      `SELECT ${RATE} AS rate
        FROM attendance WHERE date >= date_trunc('month', CURRENT_DATE)`
     );
     // Same definitions as GET /api/finance/summary (per-student balances)
@@ -106,13 +109,13 @@ const getAttendanceAnalytics = async (req, res) => {
       `SELECT date,
          COUNT(*) FILTER(WHERE status='present') AS present,
          COUNT(*) FILTER(WHERE status='absent')  AS absent,
-         ROUND(COUNT(*) FILTER(WHERE status='present')*100.0/NULLIF(COUNT(*),0),1) AS rate
+         ${RATE} AS rate
        FROM attendance WHERE date >= CURRENT_DATE-30
        GROUP BY date ORDER BY date`
     );
     const { rows: byGrade } = await db.query(
       `SELECT c.grade_level,
-         ROUND(COUNT(*) FILTER(WHERE a.status='present')*100.0/NULLIF(COUNT(*),0),1) AS rate,
+         ${RATE_A} AS rate,
          COUNT(*) FILTER(WHERE a.status='absent') AS absent_count
        FROM attendance a
        JOIN students s ON s.id=a.student_id
@@ -124,7 +127,7 @@ const getAttendanceAnalytics = async (req, res) => {
       `SELECT s.first_name||' '||s.last_name AS name,
               s.student_number, c.name AS class_name,
               COUNT(*) FILTER(WHERE a.status='absent') AS absent_days,
-              ROUND(COUNT(*) FILTER(WHERE a.status='present')*100.0/NULLIF(COUNT(*),0),1) AS rate
+              ${RATE_A} AS rate
        FROM attendance a
        JOIN students s ON s.id=a.student_id
        JOIN classes  c ON c.id=s.class_id

@@ -18,6 +18,8 @@ const { setUserActive }   = require('../utils/sessions');
 const { readAmharicNames, amharicSet, STUDENT_AM } = require('../utils/amharicNames');
 const { scopeCondition } = require('../utils/scope');
 const { isUuid }         = require('../middleware/validateIds.middleware');
+const { rateSql } = require('../utils/attendance');
+const RATE   = rateSql();   // attendance rate (M4): late attended, excused left out
 
 const STUDENT_STATUSES = ['active', 'graduated', 'withdrawn', 'suspended'];
 // Optional text fields and their lengths: an update clears them with '' or null
@@ -429,10 +431,7 @@ const getStudentSummary = async (req, res) => {
          COUNT(*) FILTER (WHERE status = 'present')       AS present_days,
          COUNT(*) FILTER (WHERE status = 'absent')        AS absent_days,
          COUNT(*) FILTER (WHERE status = 'late')          AS late_days,
-         ROUND(
-           COUNT(*) FILTER (WHERE status = 'present') * 100.0
-           / NULLIF(COUNT(*), 0), 1
-         )                                                AS attendance_rate
+         ${RATE}                                                AS attendance_rate
        FROM attendance
        WHERE student_id = $1
          AND date >= date_trunc('month', CURRENT_DATE)`,

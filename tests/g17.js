@@ -139,8 +139,9 @@ const form = (fields) => {
   // Valid ids still work, upper-case uuids too
   const ok1 = await call(A, 'PUT', `/students/${S1}`, { class_id: G.c9A.toUpperCase() });
   check(ok1.status === 200, 'PUT /students/:id with a valid (upper-case) class_id -> 200', `got ${ok1.status} ${ok1.body?.message}`);
-  const ok2 = await call(TA, 'POST', '/attendance', { class_id: G.c9A, date: '2026-01-05', records: [{ student_id: S1, status: 'present' }] });
-  check(ok2.status === 200 || ok2.status === 201, 'teacher A marks attendance with valid ids -> 2xx', `got ${ok2.status} ${ok2.body?.message}`);
+  // Valid ids pass the id checks; the M4 date rules then refuse the old date (9A's year is in the past)
+  const ok2 = await call(TA, 'POST', '/attendance', { class_id: G.c9A, date: '2025-03-03', records: [{ student_id: S1, status: 'present' }] });
+  check(ok2.status === 403 && ['too_old', 'not_current_year'].includes(ok2.body?.errors?.code), 'teacher A, valid ids -> past the id checks, then 403 by the date rules (M4)', `got ${ok2.status} ${ok2.body?.message}`);
 
   if (AUDIT) {
     const w = Math.max(...table.map(t => t.route.length));
