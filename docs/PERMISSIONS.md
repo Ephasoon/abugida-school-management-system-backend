@@ -87,7 +87,7 @@ There is no `principal` role yet (`user_role` = admin, teacher, student, parent)
 Now (Phase 1 + M4, tested in g13 and g24):
 - Mark: admin, teacher (own classes of the **current** year, today and the previous 3 days). Every student must belong to the class. No future dates; the date inside the class's year. The admin marks any past date of a class's year; outside the teacher window it is audited (`attendance.marked_past`).
 - Correct (`PUT /:id`): admin only, with a required `reason`; audited (`attendance.corrected`, old and new values).
-- Class sheet, report: admin, principal, teacher (own classes, any year). The sheet's `marking` field says whether the requester may mark that class on that date.
+- Class sheet, report (`?from=&to=`, at most 62 days, or the older `?month=&year=`): admin, principal, teacher (own classes, any year). The sheet's `marking` field says whether the requester may mark that class on that date.
 - Student history: admin, principal, teacher (students of own classes), student (self), parent (own children).
 
 ### `/api/grades`
