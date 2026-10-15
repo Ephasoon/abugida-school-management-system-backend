@@ -3,6 +3,7 @@ const db            = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
 const { sendServerError } = require('../utils/errors');
 const { rateSql } = require('../utils/attendance');
+const { SEMESTERS, SCORE_BANDS, bandOf, classResults } = require('../services/results.service');
 const RATE   = rateSql();   // attendance rate (M4): late attended, excused left out
 const RATE_A = rateSql('a');   // attendance rate (M4): late attended, excused left out
 
@@ -155,10 +156,21 @@ const getGradeAnalytics = async (req, res) => {
        FROM grades g JOIN exams e ON e.id=g.exam_id JOIN subjects s ON s.id=e.subject_id
        GROUP BY s.id, s.name, s.code ORDER BY avg_score DESC`
     );
-    const { rows: gradeDist } = await db.query(
-      `SELECT grade_letter, COUNT(*) AS count FROM grades
-       WHERE grade_letter IS NOT NULL GROUP BY grade_letter ORDER BY grade_letter`
-    );
+    // Score bands (D18) of complete subject scores per semester, current year, from the results
+    const scoreBands = {};
+    const { rows: classes } = await db.query(
+      'SELECT c.id FROM classes c JOIN academic_years y ON y.id = c.academic_year_id WHERE y.is_current');
+    for (const sem of SEMESTERS) {
+      const counts = Object.fromEntries(SCORE_BANDS.map((b) => [b.key, 0]));
+      for (const c of classes) {
+        const r = await classResults(c.id, sem);
+        for (const st of r.students) {
+          for (const v of Object.values(st.subjects)) if (v.complete) counts[bandOf(v.score)]++;
+        }
+      }
+      scoreBands[sem] = SCORE_BANDS.map((b) => ({ band: b.key, count: counts[b.key] }));
+    }
+    const gradeDist = [];   // letters are gone (B2); kept empty for the old analytics page
     const { rows: topStudents } = await db.query(
       `SELECT s.first_name||' '||s.last_name AS name,
               s.student_number, c.name AS class_name,
@@ -169,7 +181,7 @@ const getGradeAnalytics = async (req, res) => {
        GROUP BY s.id, s.first_name, s.last_name, s.student_number, c.name
        ORDER BY avg_score DESC LIMIT 10`
     );
-    return sendSuccess(res, { by_subject: bySubject, grade_dist: gradeDist, top_students: topStudents },
+    return sendSuccess(res, { by_subject: bySubject, score_bands: scoreBands, grade_dist: gradeDist, top_students: topStudents },
       'Grade analytics retrieved.');
   } catch (err) {
     return sendServerError(res, err, 'Server error.');

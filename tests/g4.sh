@@ -15,12 +15,12 @@ echo "== Exam schedules persist (migration 011), atomically"
 for old in $(js "$(req GET "/exam-schedule?class_id=$C9A&from_date=2025-03-20&to_date=2025-03-20" "$AT")" "r.data.filter(e=>e.name==='Final G4').map(e=>e.id).join(' ')"); do
   echo "  cancel leftover Final G4: $(code "$(req DELETE /exam-schedule/$old "$AT")")"
 done
-R=$(req POST /exam-schedule "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"Final G4\",\"exam_type\":\"final\",\"term\":\"term2\",\"exam_date\":\"2025-03-20\",\"start_time\":\"08:30\",\"end_time\":\"10:30\",\"room\":\"Lab 2\",\"instructions\":\"Bring a calculator\"}")
+R=$(req POST /exam-schedule "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"Final G4\",\"max_score\":1,\"exam_type\":\"final\",\"term\":\"term2\",\"exam_date\":\"2025-03-20\",\"start_time\":\"08:30\",\"end_time\":\"10:30\",\"room\":\"Lab 2\",\"instructions\":\"Bring a calculator\"}")
 ok $(code "$R") 201 "schedule exam with time/room"; EID=$(js "$R" "r.data.id")
 echo "  exam_schedules row: $(q "SELECT start_time,end_time,room,instructions FROM exam_schedules WHERE exam_id=\$1" $EID)"
-ok $(code "$(req POST /exam-schedule "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"Bad time\",\"exam_type\":\"quiz\",\"term\":\"term2\",\"exam_date\":\"2025-03-21\",\"start_time\":\"10:00\",\"end_time\":\"09:00\"}")") 400 "end_time before start_time"
+ok $(code "$(req POST /exam-schedule "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"Bad time\",\"max_score\":1,\"exam_type\":\"quiz\",\"term\":\"term2\",\"exam_date\":\"2025-03-21\",\"start_time\":\"10:00\",\"end_time\":\"09:00\"}")") 400 "end_time before start_time"
 LONG=$(printf 'R%.0s' $(seq 1 60))
-R=$(req POST /exam-schedule "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"Atomic check\",\"exam_type\":\"quiz\",\"term\":\"term2\",\"exam_date\":\"2025-03-22\",\"start_time\":\"08:00\",\"end_time\":\"09:00\",\"room\":\"$LONG\"}")
+R=$(req POST /exam-schedule "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"Atomic check\",\"max_score\":1,\"exam_type\":\"quiz\",\"term\":\"term2\",\"exam_date\":\"2025-03-22\",\"start_time\":\"08:00\",\"end_time\":\"09:00\",\"room\":\"$LONG\"}")
 ok $(code "$R") 500 "schedule insert fails (room > 50 chars) -> error surfaces"
 echo "  exam row left behind: $(q "SELECT count(*) FROM exams WHERE name='Atomic check'")"
 
