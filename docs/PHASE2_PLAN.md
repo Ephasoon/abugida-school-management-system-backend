@@ -345,7 +345,7 @@ old frontend `exam-schedule.html`, `grades.html`, `finance.html`,
   it exists). Filters change from `?term=` to `?semester=`.
 - Validation messages, tests g4 and g10 and fixtures are updated.
 
-**Built (M5a, 2026-10-16, migration 020):** as above, plus: the exam's year is its class's year (not the current one); a dated exam must lie inside that year and its date decides the semester (a disagreeing  is a 400; the old  is not checked against the date); an exam without a date needs  or ; new exams also store the matching  for the old pages; a trigger gives raw inserts without  the same rule. Changing  moves dated exams to the other semester (refused while either semester is locked, from M5a C) and the response says how many moved;  is the dry run. Accepted  until M10.
+**Built (M5a, 2026-10-16, migration 020):** as above, plus: the exam's year is its class's year (not the current one); a dated exam must lie inside that year and its date decides the semester (a disagreeing `semester` is a 400; the old `term` is not checked against the date); an exam without a date needs `semester` or `term`; new exams also store the matching `term` for the old pages; a trigger gives raw inserts without `semester` the same rule. Changing `semester2_start` moves dated exams to the other semester (refused while either semester is locked, from M5a C) and the response says how many moved; `GET /academic-years/:id/semester2-preview?semester2_start=` is the dry run. `term` is accepted until M10.
 
 **Old frontend:** its term dropdowns keep working through the mapping above.
 They are not rebuilt; the old frontend is retired at M10.
