@@ -4,7 +4,7 @@ const router  = express.Router();
 const {
   getAcademicYears, getCurrentYear,
   createAcademicYear, updateAcademicYear,
-  activateYear, getYearStats, promoteStudents,
+  activateYear, deleteAcademicYear, getYearStats, promoteStudents,
 } = require('../controllers/academicYear.controller');
 const { authenticate } = require('../middleware/auth.middleware');
 const { adminOnly, schoolLeaders } = require('../middleware/role.middleware');
@@ -20,6 +20,7 @@ router.get ('/current',       schoolLeaders, getCurrentYear);
 router.post('/',              adminOnly, createAcademicYear);
 router.put ('/:id',           adminOnly, checkIds, updateAcademicYear);
 router.post('/:id/activate',  adminOnly, checkIds, activateYear);
+router.delete('/:id',          adminOnly, checkIds, deleteAcademicYear);
 router.get ('/:id/stats',     schoolLeaders, checkIds, getYearStats);
 router.post('/:id/promote',   adminOnly, checkIds, validateBodyIds({ from_year_id: 'academic_years' }), promoteStudents);
 

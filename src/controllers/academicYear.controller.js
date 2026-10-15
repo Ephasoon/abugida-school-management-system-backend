@@ -6,6 +6,7 @@
 //   POST /api/academic-years           → create new year
 //   PUT  /api/academic-years/:id       → update year
 //   POST /api/academic-years/:id/activate → set as current
+//   DELETE /api/academic-years/:id     → delete an unused year
 //   GET  /api/academic-years/:id/stats → year statistics
 //   POST /api/academic-years/:id/promote → promote students
 // ============================================================
@@ -15,6 +16,8 @@ const { sendSuccess,
         sendError } = require('../utils/response');
 const { sendServerError } = require('../utils/errors');
 const { setUserActive } = require('../utils/sessions');
+const { audit }         = require('../utils/audit');
+const { inTransaction } = require('../utils/transaction');
 
 // Dates are 'YYYY-MM-DD' strings (see config/db.js), so they compare as text.
 const isIsoDate = (d) =>
@@ -28,6 +31,18 @@ const dateRangeError = (start_date, end_date) => {
   }
   if (end_date <= start_date) {
     return `end_date (${end_date}) must be after start_date (${start_date}).`;
+  }
+  return null;
+};
+
+// The name is the Gregorian years "YYYY/YYYY": consecutive, the first one the
+// start date's year (M7a decision: "2026/2027" starts in 2026). Error or null.
+const nameError = (name, start_date) => {
+  const m = /^(\d{4})\/(\d{4})$/.exec(String(name ?? ''));
+  if (!m) return 'name must be in format YYYY/YYYY (e.g. 2026/2027).';
+  if (+m[2] !== +m[1] + 1) return `name must be two consecutive years (e.g. ${m[1]}/${+m[1] + 1}).`;
+  if (isIsoDate(start_date) && start_date.slice(0, 4) !== m[1]) {
+    return `name must start with the year of start_date (${start_date.slice(0, 4)}/${+start_date.slice(0, 4) + 1}).`;
   }
   return null;
 };
@@ -83,23 +98,25 @@ const createAcademicYear = async (req, res) => {
       return sendError(res, 'name, start_date, and end_date are required.', 400);
     }
 
-    if (!/^\d{4}\/\d{4}$/.test(name)) {
-      return sendError(res, 'name must be in format YYYY/YYYY (e.g. 2025/2026).', 400);
-    }
-
     const dateError = dateRangeError(start_date, end_date);
     if (dateError) return sendError(res, dateError, 400);
+    const badName = nameError(name, start_date);
+    if (badName) return sendError(res, badName, 400);
 
     const { rows: existing } = await db.query(
       'SELECT id FROM academic_years WHERE name = $1', [name]
     );
     if (existing[0]) return sendError(res, `Year ${name} already exists.`, 409);
 
-    const { rows } = await db.query(
-      `INSERT INTO academic_years (name, start_date, end_date, is_current)
-       VALUES ($1,$2,$3,FALSE) RETURNING *`,
-      [name, start_date, end_date]
-    );
+    const rows = await inTransaction(async (client) => {
+      const r = await client.query(
+        `INSERT INTO academic_years (name, start_date, end_date, is_current)
+         VALUES ($1,$2,$3,FALSE) RETURNING *`,
+        [name, start_date, end_date]
+      );
+      await audit(client, req, 'academic_year.created', 'academic_year', r.rows[0].id, { name, start_date, end_date });
+      return r.rows;
+    });
 
     return sendSuccess(res, rows[0], `Academic year ${name} created.`, 201);
 
@@ -117,23 +134,34 @@ const updateAcademicYear = async (req, res) => {
 
     // ::text comparison: a malformed id simply matches nothing (404, not 500)
     const { rows: current } = await db.query(
-      'SELECT start_date, end_date FROM academic_years WHERE id::text = $1', [id]
+      'SELECT name, start_date, end_date FROM academic_years WHERE id::text = $1', [id]
     );
     if (!current[0]) return sendError(res, 'Academic year not found.', 404);
 
-    // Check the dates the row will have after the update
-    const dateError = dateRangeError(start_date ?? current[0].start_date,
-                                     end_date   ?? current[0].end_date);
+    // Check the dates and name the row will have after the update
+    const after = {
+      name: name ?? current[0].name,
+      start_date: start_date ?? current[0].start_date,
+      end_date: end_date ?? current[0].end_date,
+    };
+    const dateError = dateRangeError(after.start_date, after.end_date);
     if (dateError) return sendError(res, dateError, 400);
+    const badName = nameError(after.name, after.start_date);
+    if (badName) return sendError(res, badName, 400);
+    if (after.name !== current[0].name) {
+      const { rows: taken } = await db.query('SELECT 1 FROM academic_years WHERE name = $1 AND id <> $2', [after.name, id]);
+      if (taken[0]) return sendError(res, `Year ${after.name} already exists.`, 409);
+    }
 
-    const { rows } = await db.query(
-      `UPDATE academic_years SET
-         name       = COALESCE($1, name),
-         start_date = COALESCE($2, start_date),
-         end_date   = COALESCE($3, end_date)
-       WHERE id = $4 RETURNING *`,
-      [name, start_date, end_date, id]
-    );
+    const rows = await inTransaction(async (client) => {
+      const r = await client.query(
+        `UPDATE academic_years SET name = $1, start_date = $2, end_date = $3
+         WHERE id = $4 RETURNING *`,
+        [after.name, after.start_date, after.end_date, id]
+      );
+      await audit(client, req, 'academic_year.updated', 'academic_year', id, after);
+      return r.rows;
+    });
     if (!rows[0]) return sendError(res, 'Academic year not found.', 404);
     return sendSuccess(res, rows[0], 'Academic year updated.');
   } catch (err) {
@@ -144,7 +172,6 @@ const updateAcademicYear = async (req, res) => {
 
 // ── POST /api/academic-years/:id/activate ────────────────────
 const activateYear = async (req, res) => {
-  const client = await db.pool.connect();
   try {
     const { id } = req.params;
 
@@ -156,26 +183,52 @@ const activateYear = async (req, res) => {
       return sendError(res, `${yearRows[0].name} is already active.`, 400);
     }
 
-    await client.query('BEGIN');
-    await client.query('UPDATE academic_years SET is_current = FALSE');
-    const { rows } = await client.query(
-      'UPDATE academic_years SET is_current = TRUE WHERE id = $1 RETURNING *', [id]
-    );
-    await client.query('COMMIT');
-
-    await db.query(
-      `INSERT INTO audit_logs (user_id, action, target_type, target_id)
-       VALUES ($1,'academic_year.activated','academic_year',$2)`,
-      [req.user.id, id]
-    );
+    const rows = await inTransaction(async (client) => {
+      const { rows: before } = await client.query('SELECT id, name FROM academic_years WHERE is_current');
+      await client.query('UPDATE academic_years SET is_current = FALSE WHERE is_current');
+      const r = await client.query(
+        'UPDATE academic_years SET is_current = TRUE WHERE id = $1 RETURNING *', [id]
+      );
+      await audit(client, req, 'academic_year.activated', 'academic_year', id,
+        { name: r.rows[0].name, previous: before[0]?.name ?? null });
+      return r.rows;
+    });
 
     return sendSuccess(res, rows[0], `${rows[0].name} is now the active academic year.`);
 
   } catch (err) {
-    await client.query('ROLLBACK');
     return sendServerError(res, err, 'Server error.');
-  } finally {
-    client.release();
+  }
+};
+
+
+// ── DELETE /api/academic-years/:id ───────────────────────────
+// Only an unused year: not the current one, and nothing refers to it (no
+// classes, so no students; no exams, fee structures or payments).
+const deleteAcademicYear = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rows: yr } = await db.query('SELECT id, name, is_current FROM academic_years WHERE id = $1', [id]);
+    if (!yr[0]) return sendError(res, 'Academic year not found.', 404);
+    if (yr[0].is_current) return sendError(res, `${yr[0].name} is the active year and cannot be deleted.`, 409);
+
+    const { rows: [use] } = await db.query(
+      `SELECT (SELECT COUNT(*) FROM classes        WHERE academic_year_id = $1)::int AS classes,
+              (SELECT COUNT(*) FROM exams          WHERE academic_year_id = $1)::int AS exams,
+              (SELECT COUNT(*) FROM fee_structures WHERE academic_year_id = $1)::int AS fee_structures,
+              (SELECT COUNT(*) FROM payments       WHERE academic_year_id = $1)::int AS payments`, [id]);
+    const used = Object.entries(use).filter(([, n]) => n > 0);
+    if (used.length) {
+      return sendError(res, `${yr[0].name} is in use (${used.map(([k, n]) => `${n} ${k.replace('_', ' ')}`).join(', ')}) and cannot be deleted.`, 409, use);
+    }
+
+    await inTransaction(async (client) => {
+      await client.query('DELETE FROM academic_years WHERE id = $1', [id]);
+      await audit(client, req, 'academic_year.deleted', 'academic_year', id, { name: yr[0].name });
+    });
+    return sendSuccess(res, null, `Academic year ${yr[0].name} deleted.`);
+  } catch (err) {
+    return sendServerError(res, err, 'Server error.');
   }
 };
 
@@ -366,5 +419,5 @@ const promoteStudents = async (req, res) => {
 module.exports = {
   getAcademicYears, getCurrentYear,
   createAcademicYear, updateAcademicYear,
-  activateYear, getYearStats, promoteStudents,
+  activateYear, deleteAcademicYear, getYearStats, promoteStudents,
 };
