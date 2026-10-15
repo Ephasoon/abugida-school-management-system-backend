@@ -12,6 +12,7 @@ const RATE   = rateSql();   // attendance rate (M4): late attended, excused left
 
 const { semesterFilter } = require('../utils/semesters');
 const { studentResults, ResultsError } = require('../services/results.service');
+const { LockedError, assertSemesterUnlocked } = require('../services/locks.service');
 
 // Helper: teacher id if this user teaches subjectId in classId (teacher_classes), else null
 const getAssignedTeacherId = async (userId, classId, subjectId) => {
@@ -121,6 +122,10 @@ const enterGrades = async (req, res) => {
       }
     }
 
+    // D29: no score changes in a locked semester
+    const { rows: ec } = await db.query('SELECT name, academic_year_id FROM classes WHERE id = $1', [exam.class_id]);
+    await assertSemesterUnlocked(db, { classId: exam.class_id, yearId: ec[0].academic_year_id, semester: exam.semester, className: ec[0].name });
+
     let saved = 0;
     for (const g of grades) {
       if (g.student_id && g.score !== undefined && g.score !== null) {
@@ -139,6 +144,7 @@ const enterGrades = async (req, res) => {
       `Grades saved for ${saved} student(s).`);
 
   } catch (err) {
+    if (err instanceof LockedError) return sendError(res, err.message, err.status, err.errors);
     return sendServerError(res, err, 'Server error.');
   }
 };

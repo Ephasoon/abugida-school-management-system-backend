@@ -17,7 +17,7 @@ const { sendSuccess,
 const { sendServerError } = require('../utils/errors');
 const { validateMaxScore, isScoreRuleViolation } = require('../utils/examRules');
 const { scopeCondition } = require('../utils/scope');
-const { createExam, updateExam, ExamError } = require('../services/exam.service');
+const { createExam, updateExam, loadClassYear, assertUnlocked, ExamError } = require('../services/exam.service');
 const { semesterFilter } = require('../utils/semesters');
 
 
@@ -235,6 +235,9 @@ const updateSchedule = async (req, res) => {
 const cancelExam = async (req, res) => {
   try {
     const { id } = req.params;
+    const { rows: ex } = await db.query('SELECT class_id, semester FROM exams WHERE id = $1', [id]);
+    if (!ex[0]) return sendError(res, 'Exam not found.', 404);
+    await assertUnlocked(db, await loadClassYear(db, ex[0].class_id), ex[0].semester);   // D29
 
     // Only cancel if no grades entered
     const { rows: gradeCheck } = await db.query(
@@ -253,6 +256,7 @@ const cancelExam = async (req, res) => {
     return sendSuccess(res, null, `Exam "${rows[0].name}" cancelled.`);
 
   } catch (err) {
+    if (err instanceof ExamError) return sendError(res, err.message, err.status, err.errors);
     return sendServerError(res, err, 'Server error.');
   }
 };

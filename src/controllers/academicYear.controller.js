@@ -18,6 +18,7 @@ const { sendSuccess,
 const { sendServerError } = require('../utils/errors');
 const { audit }         = require('../utils/audit');
 const { inTransaction } = require('../utils/transaction');
+const { LockedError, assertYearUnlocked } = require('../services/locks.service');
 
 // Dates are 'YYYY-MM-DD' strings (see config/db.js), so they compare as text.
 const isIsoDate = (d) =>
@@ -209,6 +210,7 @@ const updateAcademicYear = async (req, res) => {
     }
 
     const { rows, moved } = await inTransaction(async (client) => {
+      if (after.semester2_start !== current[0].semester2_start) await assertYearUnlocked(client, id);   // D29
       const r = await client.query(
         `UPDATE academic_years SET name = $1, start_date = $2, end_date = $3, semester2_start = $4
          WHERE id = $5 RETURNING *`,
@@ -228,6 +230,7 @@ const updateAcademicYear = async (req, res) => {
     return sendSuccess(res, { ...rows[0], exams_moved: moved },
       moved ? `Academic year updated; ${moved} exam(s) moved to the other semester.` : 'Academic year updated.');
   } catch (err) {
+    if (err instanceof LockedError) return sendError(res, err.message, err.status, err.errors);
     return sendServerError(res, err, 'Server error.');
   }
 };

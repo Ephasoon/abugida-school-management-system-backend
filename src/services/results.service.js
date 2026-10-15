@@ -19,9 +19,12 @@
 //   also overrides the pass mark for other grades).
 // Students of a class = its active students now, plus anyone with a score in its exams
 // (promotion and moves don't change old results). Days absent per semester: D28.
+// Each semester also carries its conduct grades and remarks (D23) and its lock (D29): a
+// locked semester is "final", otherwise "provisional".
 // ============================================================
 
 const db = require('../config/db');
+const { findLock } = require('./locks.service');
 
 const SEMESTERS = ['semester1', 'semester2'];
 // Score bands (D18), for analytics
@@ -93,6 +96,10 @@ const classSemester = async (cls, semester, q = db) => {
     `SELECT g.student_id, e.subject_id, SUM(g.score) AS score, COUNT(*)::int AS graded
      FROM grades g JOIN exams e ON e.id = g.exam_id
      WHERE e.class_id = $1 AND e.semester = $2 GROUP BY 1, 2`, [cls.id, semester]);
+  const { rows: conduct } = await q.query(
+    'SELECT student_id, conduct, remark FROM semester_conduct WHERE academic_year_id = $1 AND semester = $2',
+    [cls.academic_year_id, semester]);
+  const lock = await findLock(q, { yearId: cls.academic_year_id, semester, classId: cls.id });
   const range = semesterRange(cls, semester);
   const { rows: att } = await q.query(
     `SELECT student_id, COUNT(*) FILTER (WHERE status = 'absent')::int AS absent,
@@ -109,6 +116,7 @@ const classSemester = async (cls, semester, q = db) => {
   });
   const byKey = new Map(scores.map((r) => [`${r.student_id}/${r.subject_id}`, r]));
   const attBy = new Map(att.map((r) => [r.student_id, r]));
+  const conductBy = new Map(conduct.map((r) => [r.student_id, r]));
 
   const students = roster.map((st) => {
     let totalCents = 0;
@@ -132,6 +140,7 @@ const classSemester = async (cls, semester, q = db) => {
       complete,
       rank: null,
       days_absent: a.absent, days_late: a.late, days_excused: a.excused,
+      conduct: conductBy.get(st.student_id)?.conduct ?? null, remark: conductBy.get(st.student_id)?.remark ?? null,
     };
   });
   const ranked = students.filter((s) => s.complete);
@@ -142,6 +151,8 @@ const classSemester = async (cls, semester, q = db) => {
   return {
     semester, range, subjects: subj, students,
     class_size: students.length, ranked_count: ranked.length,
+    locked: lock ? { id: lock.id, whole_school: lock.class_id === null, locked_at: lock.locked_at } : null,
+    final: !!lock,
   };
 };
 
@@ -256,6 +267,7 @@ const studentResults = async (studentId, academicYearId, q = db) => {
     const row = sem.students.find((s) => s.student_id === student.id);
     return {
       semester: key, range: sem.range, class_size: sem.class_size, ranked_count: sem.ranked_count,
+      locked: sem.locked, final: sem.final, conduct: row?.conduct ?? null, remark: row?.remark ?? null,
       subjects: sem.subjects.map((s) => ({
         subject_id: s.subject_id, name: s.name, name_am: s.name_am, max_total: s.max_total, status: s.status,
         assessments: s.exams.length, ...(row?.subjects[s.subject_id] ?? { score: null, graded: 0, complete: false }),
