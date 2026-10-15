@@ -8,14 +8,13 @@
 //   POST /api/academic-years/:id/activate → set as current
 //   DELETE /api/academic-years/:id     → delete an unused year
 //   GET  /api/academic-years/:id/stats → year statistics
-//   POST /api/academic-years/:id/promote → promote students
+//   promotion: promotion.controller.js; classes: class.controller.js
 // ============================================================
 
 const db            = require('../config/db');
 const { sendSuccess,
         sendError } = require('../utils/response');
 const { sendServerError } = require('../utils/errors');
-const { setUserActive } = require('../utils/sessions');
 const { audit }         = require('../utils/audit');
 const { inTransaction } = require('../utils/transaction');
 
@@ -54,7 +53,9 @@ const getAcademicYears = async (req, res) => {
     const { rows } = await db.query(
       `SELECT ay.*,
          COUNT(DISTINCT c.id) AS class_count,
-         COUNT(DISTINCT s.id) AS student_count
+         COUNT(DISTINCT s.id) AS student_count,
+         (SELECT fy.name FROM promotion_runs pr JOIN academic_years fy ON fy.id = pr.from_year_id WHERE pr.to_year_id = ay.id LIMIT 1) AS promoted_from,
+         (SELECT ty.name FROM promotion_runs pr JOIN academic_years ty ON ty.id = pr.to_year_id WHERE pr.from_year_id = ay.id) AS promoted_to
        FROM academic_years ay
        LEFT JOIN classes  c ON c.academic_year_id = ay.id
        LEFT JOIN students s ON s.class_id = c.id AND s.status = 'active'
@@ -216,7 +217,8 @@ const deleteAcademicYear = async (req, res) => {
       `SELECT (SELECT COUNT(*) FROM classes        WHERE academic_year_id = $1)::int AS classes,
               (SELECT COUNT(*) FROM exams          WHERE academic_year_id = $1)::int AS exams,
               (SELECT COUNT(*) FROM fee_structures WHERE academic_year_id = $1)::int AS fee_structures,
-              (SELECT COUNT(*) FROM payments       WHERE academic_year_id = $1)::int AS payments`, [id]);
+              (SELECT COUNT(*) FROM payments       WHERE academic_year_id = $1)::int AS payments,
+              (SELECT COUNT(*) FROM promotion_runs WHERE $1 IN (from_year_id, to_year_id))::int AS promotions`, [id]);
     const used = Object.entries(use).filter(([, n]) => n > 0);
     if (used.length) {
       return sendError(res, `${yr[0].name} is in use (${used.map(([k, n]) => `${n} ${k.replace('_', ' ')}`).join(', ')}) and cannot be deleted.`, 409, use);
@@ -303,121 +305,8 @@ const getYearStats = async (req, res) => {
 };
 
 
-// ── POST /api/academic-years/:id/promote ─────────────────────
-// Promote students from one year to the next.
-const promoteStudents = async (req, res) => {
-  const client = await db.pool.connect();
-  try {
-    const { id }         = req.params; // target NEW year id
-    const { from_year_id, grade_levels } = req.body;
-
-    if (!from_year_id) {
-      return sendError(res, 'from_year_id is required.', 400);
-    }
-
-    const { rows: toYear }   = await db.query(
-      'SELECT * FROM academic_years WHERE id=$1', [id]
-    );
-    const { rows: fromYear } = await db.query(
-      'SELECT * FROM academic_years WHERE id=$1', [from_year_id]
-    );
-    if (!toYear[0] || !fromYear[0]) {
-      return sendError(res, 'One or both academic years not found.', 404);
-    }
-
-    await client.query('BEGIN');
-
-    const grades   = grade_levels || [7,8,9,10,11,12];
-    let   promoted = 0;
-    let   graduated= 0;
-    const results  = [];
-
-    for (const grade of grades) {
-      const { rows: fromClasses } = await client.query(
-        `SELECT c.*, ARRAY_AGG(s.id) FILTER(WHERE s.id IS NOT NULL) AS student_ids
-         FROM classes c
-         LEFT JOIN students s ON s.class_id=c.id AND s.status='active'
-         WHERE c.academic_year_id=$1 AND c.grade_level=$2
-         GROUP BY c.id`,
-        [from_year_id, grade]
-      );
-
-      for (const fc of fromClasses) {
-        const ids = fc.student_ids || [];
-        if (ids.length === 0) continue;
-
-        if (grade >= 12) {
-          // Graduate grade 12
-          const { rows: gradUsers } = await client.query(
-            `UPDATE students SET status='graduated', updated_at=NOW()
-             WHERE id=ANY($1) RETURNING user_id`, [ids]
-          );
-          // Graduated students lose login access, like any non-active student
-          for (const { user_id } of gradUsers) {
-            await setUserActive(user_id, false, client);
-          }
-          graduated += ids.length;
-          results.push({ from:`Grade ${grade} ${fc.section}`, action:'graduated', count:ids.length });
-          continue;
-        }
-
-        const nextGrade = grade + 1;
-
-        // Find or create target class
-        let { rows: toClasses } = await client.query(
-          `SELECT id FROM classes
-           WHERE academic_year_id=$1 AND grade_level=$2 AND section=$3`,
-          [id, nextGrade, fc.section]
-        );
-
-        let toClassId;
-        if (toClasses[0]) {
-          toClassId = toClasses[0].id;
-        } else {
-          const { rows: nc } = await client.query(
-            `INSERT INTO classes (academic_year_id, name, grade_level, section, capacity)
-             VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-            [id, `Grade ${nextGrade} Section ${fc.section}`, nextGrade, fc.section, fc.capacity||45]
-          );
-          toClassId = nc[0].id;
-        }
-
-        await client.query(
-          `UPDATE students SET class_id=$1, updated_at=NOW() WHERE id=ANY($2)`,
-          [toClassId, ids]
-        );
-
-        promoted += ids.length;
-        results.push({
-          from:`Grade ${grade} ${fc.section}`,
-          to:`Grade ${nextGrade} ${fc.section}`,
-          action:'promoted', count:ids.length,
-        });
-      }
-    }
-
-    await client.query('COMMIT');
-
-    await db.query(
-      `INSERT INTO audit_logs (user_id,action,target_type,target_id,new_data)
-       VALUES ($1,'students.promoted','academic_year',$2,$3)`,
-      [req.user.id, id, JSON.stringify({ promoted, graduated })]
-    );
-
-    return sendSuccess(res, { promoted, graduated, results },
-      `${promoted} students promoted. ${graduated} graduated.`);
-
-  } catch (err) {
-    await client.query('ROLLBACK');
-    return sendServerError(res, err, 'Server error during promotion.');
-  } finally {
-    client.release();
-  }
-};
-
-
 module.exports = {
   getAcademicYears, getCurrentYear,
   createAcademicYear, updateAcademicYear,
-  activateYear, deleteAcademicYear, getYearStats, promoteStudents,
+  activateYear, deleteAcademicYear, getYearStats,
 };

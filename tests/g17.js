@@ -68,6 +68,10 @@ const form = (fields) => {
   const R = [
     ['POST', `/academic-years/${yearId}/promote`, { from_year_id: yearId }, ['from_year_id'], A],
     ['POST', `/accounts/parents/${parentId}/children`, { student_id: S1, relationship: 'guardian' }, ['student_id'], A],
+    ['POST', `/academic-years/${yearId}/copy-classes`, { from_year_id: yearId }, ['from_year_id'], A],
+    ['POST', `/academic-years/${yearId}/promotion-preview`, { from_year_id: yearId, exclude: [S1, S2] }, ['from_year_id', 'exclude[1]'], A],
+    ['POST', '/classes', { academic_year_id: yearId, grade_level: 7, section: 'A', homeroom_teacher_id: G.tA.tid }, ['academic_year_id', 'homeroom_teacher_id'], A],
+    ['PUT', `/classes/${G.c9A}`, { homeroom_teacher_id: G.tA.tid }, ['homeroom_teacher_id'], A],
     ['POST', '/attendance', { class_id: G.c9A, date: '2026-01-05', records: [{ student_id: S1, status: 'present' }, { student_id: S2, status: 'present' }] }, ['class_id', 'records[1].student_id'], A],
     ['POST', '/documents/upload', { category: 'other', title: TAG, student_id: S1, teacher_id: G.tA.tid }, ['student_id', 'teacher_id'], A, true],
     ['POST', '/exam-schedule', { class_id: G.c9A, subject_id: G.math, name: TAG, exam_type: 'quiz', term: 'term1', exam_date: '2026-12-01', max_score: 5 }, ['class_id', 'subject_id'], A],

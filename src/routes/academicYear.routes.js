@@ -4,13 +4,14 @@ const router  = express.Router();
 const {
   getAcademicYears, getCurrentYear,
   createAcademicYear, updateAcademicYear,
-  activateYear, deleteAcademicYear, getYearStats, promoteStudents,
+  activateYear, deleteAcademicYear, getYearStats,
 } = require('../controllers/academicYear.controller');
 const { authenticate } = require('../middleware/auth.middleware');
 const { adminOnly, schoolLeaders } = require('../middleware/role.middleware');
 const { validateIds } = require('../middleware/validateIds.middleware');
 const { validateBodyIds } = require('../middleware/validateBodyIds.middleware');
 const { copyClasses } = require('../controllers/class.controller');
+const { previewPromotion, applyPromotion } = require('../controllers/promotion.controller');
 
 router.use(authenticate);
 
@@ -24,6 +25,9 @@ router.post('/:id/activate',  adminOnly, checkIds, activateYear);
 router.delete('/:id',          adminOnly, checkIds, deleteAcademicYear);
 router.post('/:id/copy-classes', adminOnly, checkIds, validateBodyIds({ from_year_id: 'academic_years' }), copyClasses);
 router.get ('/:id/stats',     schoolLeaders, checkIds, getYearStats);
-router.post('/:id/promote',   adminOnly, checkIds, validateBodyIds({ from_year_id: 'academic_years' }), promoteStudents);
+// Promotion (M7a): preview first (nothing written), then apply with confirm_count
+const promotionIds = validateBodyIds({ from_year_id: 'academic_years', 'exclude[]': 'students' });
+router.post('/:id/promotion-preview', adminOnly, checkIds, promotionIds, previewPromotion);
+router.post('/:id/promote',           adminOnly, checkIds, promotionIds, applyPromotion);
 
 module.exports = router;

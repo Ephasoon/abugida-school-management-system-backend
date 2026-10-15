@@ -28,12 +28,11 @@ ok $(code "$(login $E)") 200 "  ...leaves login enabled"
 echo "== Student: graduation via promotion"
 E=$(st graduate email); SID=$(st graduate studentId)
 R=$(login $E sg); T=$(js "$R" "r.data.accessToken")
-FROM=$(js "$(req GET /academic-years "$AT")" "r.data.find(y=>y.is_current).id")
-R=$(req POST /academic-years "$AT" '{"name":"2099/2100","start_date":"2099-09-01","end_date":"2100-07-31"}')
-TO=$(js "$R" "r.data?.id") ; [ "$TO" = "undefined" ] && TO=$(js "$(req GET /academic-years "$AT")" "r.data.find(y=>y.name==='2099/2100').id")
-R=$(req POST /academic-years/$TO/promote "$AT" "{\"from_year_id\":\"$FROM\",\"grade_levels\":[12]}"); ok $(code "$R") 200 "promote grade 12"; echo "  $(js "$R" "r.message")"
-ok $(code "$(req GET /students/$SID/summary "$T")") 401 "graduate's token rejected"
-ok $(code "$(req POST /auth/refresh "" "" sg)") 401 "graduate's refresh revoked"
+# Safe promotion (M7a) on its own years: the student is moved to a grade 12 class there and graduated
+ok "$(node "$WS/graduate.js" "$AT" "$SID")" 200 "promote grade 12 (preview + apply)"
+ok $(code "$(req GET /students/$SID/summary "$T")") 401 "student token rejected at once"
+ok $(code "$(req POST /auth/refresh "" "" sg)") 401 "student refresh revoked"
+ok $(code "$(login $E)") 403 "student login refused"
 
 echo "== Refresh tokens issued before this change (no jti) are rejected"
 OLD=$(node -e "require('$WS/../node_modules/dotenv').config({path:'$WS/../.env'});const j=require('$WS/../node_modules/jsonwebtoken');const p=JSON.parse(Buffer.from(process.argv[1].split('.')[1],'base64url'));console.log(j.sign({id:p.id},process.env.JWT_REFRESH_SECRET,{expiresIn:'7d'}))" $AT)
