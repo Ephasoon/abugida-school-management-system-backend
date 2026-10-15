@@ -165,6 +165,8 @@ const tag = Date.now().toString(36);
     }
 
     for (const id of [sa, sb, sp]) await call(A, 'DELETE', `/students/${id}`);
+    // Teacher A's classes are checked by g7 and g9: no assignment left behind
+    for (const c of [cls, pastCls]) await call(A, 'DELETE', `/teachers/${G.tA.tid}/classes/${c}/${G.math}`);
   } finally {
     await restoreFixtureYear(call, A);
     const cur = (await pool.query('SELECT name FROM academic_years WHERE is_current')).rows[0]?.name;
