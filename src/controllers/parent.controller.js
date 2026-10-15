@@ -106,7 +106,7 @@ const getChildSummary = async (req, res) => {
     // Recent 5 grades
     const { rows: grades } = await db.query(
       `SELECT g.score, g.grade_letter, e.max_score,
-              s.name AS subject, e.term, e.exam_type, e.exam_date
+              s.name AS subject, e.term, e.semester, e.exam_type, e.exam_date
        FROM grades g
        JOIN exams e ON e.id=g.exam_id
        JOIN subjects s ON s.id=e.subject_id
@@ -143,14 +143,14 @@ const getChildGrades = async (req, res) => {
 
     const { rows } = await db.query(
       `SELECT g.score, g.grade_letter, g.remarks,
-              e.name AS exam_name, e.exam_type, e.term, e.max_score, e.exam_date,
+              e.name AS exam_name, e.exam_type, e.term, e.semester, e.max_score, e.exam_date,
               s.name AS subject_name,
               ROUND((g.score/e.max_score)*100,1) AS percentage
        FROM grades g
        JOIN exams e ON e.id=g.exam_id
        JOIN subjects s ON s.id=e.subject_id
        WHERE g.student_id=$1
-       ORDER BY e.term, s.name, e.exam_date DESC`, [studentId]
+       ORDER BY e.semester, s.name, e.exam_date DESC`, [studentId]
     );
 
     const bySubject = {};

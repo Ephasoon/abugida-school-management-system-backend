@@ -17,7 +17,8 @@ const { sendSuccess,
 const { sendServerError } = require('../utils/errors');
 const { validateMaxScore, isScoreRuleViolation } = require('../utils/examRules');
 const { scopeCondition } = require('../utils/scope');
-const { createExam, ExamError } = require('../services/exam.service');
+const { createExam, updateExam, ExamError } = require('../services/exam.service');
+const { semesterFilter } = require('../utils/semesters');
 
 
 // ── POST /api/exam-schedule ──────────────────────────────────
@@ -45,13 +46,15 @@ const scheduleExam = async (req, res) => {
 // ── GET /api/exam-schedule ───────────────────────────────────
 const getAllScheduled = async (req, res) => {
   try {
-    const { term, class_id, from_date, to_date } = req.query;
+    const { class_id, from_date, to_date } = req.query;
+    const sf = semesterFilter(req.query);
+    if (sf.error) return sendError(res, sf.error, 400, { field: 'semester' });
 
     const conditions = ['e.exam_date IS NOT NULL'];
     const params     = [];
     let   idx        = 1;
 
-    if (term)      { conditions.push(`e.term = $${idx++}`);       params.push(term); }
+    if (sf.semester) { conditions.push(`e.semester = $${idx++}`); params.push(sf.semester); }
     if (class_id)  { conditions.push(`e.class_id = $${idx++}`);   params.push(class_id); }
     if (from_date) { conditions.push(`e.exam_date >= $${idx++}`);  params.push(from_date); }
     if (to_date)   { conditions.push(`e.exam_date <= $${idx++}`);  params.push(to_date); }
@@ -63,7 +66,7 @@ const getAllScheduled = async (req, res) => {
 
     const { rows } = await db.query(
       `SELECT
-         e.id, e.name, e.exam_type, e.term,
+         e.id, e.name, e.exam_type, e.term, e.semester,
          e.exam_date, e.max_score, e.created_at,
          c.name        AS class_name,
          c.grade_level,
@@ -101,7 +104,7 @@ const getUpcoming = async (req, res) => {
 
     const { rows } = await db.query(
       `SELECT
-         e.id, e.name, e.exam_type, e.term,
+         e.id, e.name, e.exam_type, e.term, e.semester,
          e.exam_date, e.max_score,
          c.name        AS class_name,
          c.grade_level, c.section,
@@ -140,7 +143,7 @@ const getCalendar = async (req, res) => {
 
     const { rows } = await db.query(
       `SELECT
-         e.id, e.name, e.exam_type, e.term, e.exam_date, e.max_score,
+         e.id, e.name, e.exam_type, e.term, e.semester, e.exam_date, e.max_score,
          c.name        AS class_name,
          c.grade_level,
          s.name        AS subject_name,
@@ -181,15 +184,16 @@ const getCalendar = async (req, res) => {
 const getClassExams = async (req, res) => {
   try {
     const { classId } = req.params;
-    const { term }    = req.query;
+    const sf = semesterFilter(req.query);
+    if (sf.error) return sendError(res, sf.error, 400, { field: 'semester' });
 
     const params     = [classId];
     let   termFilter = '';
-    if (term) { termFilter = 'AND e.term = $2'; params.push(term); }
+    if (sf.semester) { termFilter = 'AND e.semester = $2'; params.push(sf.semester); }
 
     const { rows } = await db.query(
       `SELECT
-         e.id, e.name, e.exam_type, e.term,
+         e.id, e.name, e.exam_type, e.term, e.semester,
          e.exam_date, e.max_score, e.created_at,
          s.name AS subject_name, s.code AS subject_code,
          COUNT(g.id) AS grades_entered,
@@ -214,27 +218,11 @@ const getClassExams = async (req, res) => {
 // ── PUT /api/exam-schedule/:id ───────────────────────────────
 const updateSchedule = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { name, exam_date, exam_type, term, max_score, room, start_time, end_time } = req.body;
-
-    const maxScoreError = validateMaxScore(max_score);
-    if (maxScoreError) return sendError(res, maxScoreError, 400);
-
-    const { rows } = await db.query(
-      `UPDATE exams SET
-         name      = COALESCE($1, name),
-         exam_date = COALESCE($2, exam_date),
-         exam_type = COALESCE($3, exam_type),
-         term      = COALESCE($4, term),
-         max_score = COALESCE($5, max_score)
-       WHERE id = $6 RETURNING *`,
-      [name, exam_date, exam_type, term, max_score, id]
-    );
-
-    if (!rows[0]) return sendError(res, 'Exam not found.', 404);
-    return sendSuccess(res, rows[0], 'Exam schedule updated.');
+    const exam = await updateExam(req.params.id, req.body || {});
+    return sendSuccess(res, exam, 'Exam schedule updated.');
 
   } catch (err) {
+    if (err instanceof ExamError) return sendError(res, err.message, err.status, err.errors);
     if (isScoreRuleViolation(err)) {
       return sendError(res, 'max_score cannot be lower than a score already entered for this exam.', 400);
     }

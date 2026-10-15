@@ -2,7 +2,7 @@
 const express = require('express');
 const router  = express.Router();
 const {
-  getAcademicYears, getCurrentYear,
+  getAcademicYears, getCurrentYear, previewSemester2,
   createAcademicYear, updateAcademicYear,
   activateYear, deleteAcademicYear, getYearStats,
 } = require('../controllers/academicYear.controller');
@@ -25,6 +25,7 @@ router.post('/:id/activate',  adminOnly, checkIds, activateYear);
 router.delete('/:id',          adminOnly, checkIds, deleteAcademicYear);
 router.post('/:id/copy-classes', adminOnly, checkIds, validateBodyIds({ from_year_id: 'academic_years' }), copyClasses);
 router.get ('/:id/stats',     schoolLeaders, checkIds, getYearStats);
+router.get ('/:id/semester2-preview', adminOnly, checkIds, previewSemester2);   // dry run: exams that would move
 // Promotion (M7a): preview first (nothing written), then apply with confirm_count
 const promotionIds = validateBodyIds({ from_year_id: 'academic_years', 'exclude[]': 'students' });
 router.post('/:id/promotion-preview', adminOnly, checkIds, promotionIds, previewPromotion);

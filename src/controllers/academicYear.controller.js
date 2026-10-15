@@ -4,7 +4,8 @@
 //   GET  /api/academic-years           → list all years
 //   GET  /api/academic-years/current   → get current year
 //   POST /api/academic-years           → create new year
-//   PUT  /api/academic-years/:id       → update year
+//   PUT  /api/academic-years/:id       → update year (a changed semester2_start moves dated exams)
+//   GET  /api/academic-years/:id/semester2-preview → which exams a new semester2_start would move
 //   POST /api/academic-years/:id/activate → set as current
 //   DELETE /api/academic-years/:id     → delete an unused year
 //   GET  /api/academic-years/:id/stats → year statistics
@@ -33,6 +34,29 @@ const dateRangeError = (start_date, end_date) => {
   }
   return null;
 };
+
+// semester2_start (B1): after start_date, not after end_date. Error or null.
+const semester2Error = (s2, start_date, end_date) => {
+  if (!isIsoDate(s2)) return 'semester2_start must be a valid date in format YYYY-MM-DD.';
+  if (s2 <= start_date || s2 > end_date) {
+    return `semester2_start (${s2}) must be after start_date (${start_date}) and not after end_date (${end_date}).`;
+  }
+  return null;
+};
+
+// Default semester 2 start (D14): Yekatit 1 of the Ethiopian year of end_date (one SQL function, 020)
+const defaultSemester2 = async (q, end_date) =>
+  (await q.query('SELECT asms_semester2_default($1::date)::text AS d', [end_date])).rows[0].d;
+
+// Dated exams of a year's classes whose semester would change with this semester 2 start
+const examsMoving = (q, yearId, s2) => q.query(
+  `SELECT e.id, e.name, e.exam_date, e.semester AS from_semester,
+          CASE WHEN e.exam_date >= $2::date THEN 'semester2' ELSE 'semester1' END AS to_semester,
+          c.name AS class_name, s.name AS subject_name
+   FROM exams e JOIN classes c ON c.id = e.class_id JOIN subjects s ON s.id = e.subject_id
+   WHERE c.academic_year_id = $1 AND e.exam_date IS NOT NULL
+     AND e.semester::text <> CASE WHEN e.exam_date >= $2::date THEN 'semester2' ELSE 'semester1' END
+   ORDER BY e.exam_date, c.name, s.name`, [yearId, s2]).then((r) => r.rows);
 
 // The name is the Gregorian years "YYYY/YYYY": consecutive, the first one the
 // start date's year (M7a decision: "2026/2027" starts in 2026). Error or null.
@@ -104,6 +128,15 @@ const createAcademicYear = async (req, res) => {
     const badName = nameError(name, start_date);
     if (badName) return sendError(res, badName, 400);
 
+    // Semester 2 start: as sent, or the default (the old frontend never sends it)
+    const semester2_start = req.body.semester2_start ?? await defaultSemester2(db, end_date);
+    const s2Error = semester2Error(semester2_start, start_date, end_date);
+    if (s2Error) {
+      return sendError(res, req.body.semester2_start === undefined
+        ? `The default semester 2 start (Yekatit 1, ${semester2_start}) is outside these dates; send semester2_start.` : s2Error,
+      400, { field: 'semester2_start' });
+    }
+
     const { rows: existing } = await db.query(
       'SELECT id FROM academic_years WHERE name = $1', [name]
     );
@@ -111,11 +144,11 @@ const createAcademicYear = async (req, res) => {
 
     const rows = await inTransaction(async (client) => {
       const r = await client.query(
-        `INSERT INTO academic_years (name, start_date, end_date, is_current)
-         VALUES ($1,$2,$3,FALSE) RETURNING *`,
-        [name, start_date, end_date]
+        `INSERT INTO academic_years (name, start_date, end_date, semester2_start, is_current)
+         VALUES ($1,$2,$3,$4,FALSE) RETURNING *`,
+        [name, start_date, end_date, semester2_start]
       );
-      await audit(client, req, 'academic_year.created', 'academic_year', r.rows[0].id, { name, start_date, end_date });
+      await audit(client, req, 'academic_year.created', 'academic_year', r.rows[0].id, { name, start_date, end_date, semester2_start });
       return r.rows;
     });
 
@@ -131,11 +164,11 @@ const createAcademicYear = async (req, res) => {
 const updateAcademicYear = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, start_date, end_date } = req.body;
+    const { name, start_date, end_date, semester2_start } = req.body;
 
     // ::text comparison: a malformed id simply matches nothing (404, not 500)
     const { rows: current } = await db.query(
-      'SELECT name, start_date, end_date FROM academic_years WHERE id::text = $1', [id]
+      'SELECT name, start_date, end_date, semester2_start FROM academic_years WHERE id::text = $1', [id]
     );
     if (!current[0]) return sendError(res, 'Academic year not found.', 404);
 
@@ -144,27 +177,50 @@ const updateAcademicYear = async (req, res) => {
       name: name ?? current[0].name,
       start_date: start_date ?? current[0].start_date,
       end_date: end_date ?? current[0].end_date,
+      semester2_start: semester2_start ?? current[0].semester2_start,
     };
     const dateError = dateRangeError(after.start_date, after.end_date);
     if (dateError) return sendError(res, dateError, 400);
     const badName = nameError(after.name, after.start_date);
     if (badName) return sendError(res, badName, 400);
+    const s2Error = semester2Error(after.semester2_start, after.start_date, after.end_date);
+    if (s2Error) {
+      return sendError(res, semester2_start === undefined
+        ? `Semester 2 starts ${after.semester2_start}, outside the new dates; send semester2_start too.` : s2Error,
+      400, { field: 'semester2_start' });
+    }
     if (after.name !== current[0].name) {
       const { rows: taken } = await db.query('SELECT 1 FROM academic_years WHERE name = $1 AND id <> $2', [after.name, id]);
       if (taken[0]) return sendError(res, `Year ${after.name} already exists.`, 409);
     }
+    // Dated exams must stay inside the year
+    const { rows: outside } = await db.query(
+      `SELECT COUNT(*)::int AS n FROM exams e JOIN classes c ON c.id = e.class_id
+       WHERE c.academic_year_id = $1 AND e.exam_date IS NOT NULL AND (e.exam_date < $2 OR e.exam_date > $3)`,
+      [id, after.start_date, after.end_date]);
+    if (outside[0].n) {
+      return sendError(res, `${outside[0].n} exam(s) of this year are dated outside ${after.start_date} to ${after.end_date}. Change their dates first.`, 400, { field: 'start_date' });
+    }
 
-    const rows = await inTransaction(async (client) => {
+    const { rows, moved } = await inTransaction(async (client) => {
       const r = await client.query(
-        `UPDATE academic_years SET name = $1, start_date = $2, end_date = $3
-         WHERE id = $4 RETURNING *`,
-        [after.name, after.start_date, after.end_date, id]
+        `UPDATE academic_years SET name = $1, start_date = $2, end_date = $3, semester2_start = $4
+         WHERE id = $5 RETURNING *`,
+        [after.name, after.start_date, after.end_date, after.semester2_start, id]
       );
-      await audit(client, req, 'academic_year.updated', 'academic_year', id, after);
-      return r.rows;
+      // Dated exams follow a changed semester 2 start
+      const moving = await examsMoving(client, id, after.semester2_start);
+      if (moving.length) {
+        await client.query(
+          `UPDATE exams SET semester = CASE WHEN exam_date >= $2::date THEN 'semester2' ELSE 'semester1' END::semester_type
+           WHERE id = ANY($1::uuid[])`, [moving.map((e) => e.id), after.semester2_start]);
+      }
+      await audit(client, req, 'academic_year.updated', 'academic_year', id, { ...after, exams_moved: moving.length });
+      return { rows: r.rows, moved: moving.length };
     });
     if (!rows[0]) return sendError(res, 'Academic year not found.', 404);
-    return sendSuccess(res, rows[0], 'Academic year updated.');
+    return sendSuccess(res, { ...rows[0], exams_moved: moved },
+      moved ? `Academic year updated; ${moved} exam(s) moved to the other semester.` : 'Academic year updated.');
   } catch (err) {
     return sendServerError(res, err, 'Server error.');
   }
@@ -305,8 +361,35 @@ const getYearStats = async (req, res) => {
 };
 
 
+// ── GET /api/academic-years/:id/semester2-preview?semester2_start= ─
+// Dry run for changing semester 2's start: which dated exams would move (nothing written),
+// so the screen can confirm before saving.
+const previewSemester2 = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { semester2_start } = req.query;
+    const { rows: y } = await db.query('SELECT id, name, start_date, end_date, semester2_start FROM academic_years WHERE id::text = $1', [id]);
+    if (!y[0]) return sendError(res, 'Academic year not found.', 404);
+    const s2Error = semester2Error(semester2_start, y[0].start_date, y[0].end_date);
+    if (s2Error) return sendError(res, s2Error, 400, { field: 'semester2_start' });
+    const exams = await examsMoving(db, y[0].id, semester2_start);
+    return sendSuccess(res, {
+      academic_year_id: y[0].id,
+      current_semester2_start: y[0].semester2_start,
+      semester2_start,
+      exams_moved: exams.length,
+      to_semester1: exams.filter((e) => e.to_semester === 'semester1').length,
+      to_semester2: exams.filter((e) => e.to_semester === 'semester2').length,
+      exams,
+    }, `${exams.length} exam(s) would move to the other semester.`);
+  } catch (err) {
+    return sendServerError(res, err, 'Server error.');
+  }
+};
+
+
 module.exports = {
-  getAcademicYears, getCurrentYear,
+  getAcademicYears, getCurrentYear, previewSemester2,
   createAcademicYear, updateAcademicYear,
   activateYear, deleteAcademicYear, getYearStats,
 };

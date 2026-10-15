@@ -9,7 +9,7 @@ const { createExam: createExamService, ExamError } = require('../services/exam.s
 const { rateSql } = require('../utils/attendance');
 const RATE   = rateSql();   // attendance rate (M4): late attended, excused left out
 
-const VALID_TERMS = ['term1', 'term2', 'term3'];
+const { semesterFilter } = require('../utils/semesters');
 
 // Helper: teacher id if this user teaches subjectId in classId (teacher_classes), else null
 const getAssignedTeacherId = async (userId, classId, subjectId) => {
@@ -62,10 +62,12 @@ const createExam = async (req, res) => {
 // GET /api/grades/exams — List exams
 const getExams = async (req, res) => {
   try {
-    const { class_id, term, subject_id } = req.query;
+    const { class_id, subject_id } = req.query;
+    const sf = semesterFilter(req.query);
+    if (sf.error) return sendError(res, sf.error, 400, { field: 'semester' });
     const conditions = []; const params = []; let idx = 1;
     if (class_id)   { conditions.push(`e.class_id=$${idx++}`);   params.push(class_id); }
-    if (term)       { conditions.push(`e.term=$${idx++}`);        params.push(term); }
+    if (sf.semester) { conditions.push(`e.semester=$${idx++}`);   params.push(sf.semester); }
     if (subject_id) { conditions.push(`e.subject_id=$${idx++}`);  params.push(subject_id); }
     // Teachers only see exams of their own classes
     const scoped = await scopeCondition(req.user, 'e.class_id', params);
@@ -166,7 +168,7 @@ const enterGrades = async (req, res) => {
 const getReportCard = async (req, res) => {
   try {
     const { studentId } = req.params;
-    const { term } = req.query;
+    const sf = semesterFilter(req.query);
 
     const { rows: stuRows } = await db.query(
       `SELECT s.*, c.name AS class_name, c.grade_level, c.section,
@@ -178,13 +180,11 @@ const getReportCard = async (req, res) => {
     );
     if (!stuRows[0]) return sendError(res, 'Student not found.', 404);
 
-    if (term && !VALID_TERMS.includes(term)) {
-      return sendError(res, `term must be one of: ${VALID_TERMS.join(', ')}`, 400);
-    }
-    const termFilter = term ? 'AND e.term = $2' : '';
-    const gradeParams = term ? [studentId, term] : [studentId];
+    if (sf.error) return sendError(res, sf.error, 400, { field: 'semester' });
+    const termFilter = sf.semester ? 'AND e.semester = $2' : '';
+    const gradeParams = sf.semester ? [studentId, sf.semester] : [studentId];
     const { rows: gradeRows } = await db.query(
-      `SELECT s.name AS subject, e.term, e.exam_type, e.max_score,
+      `SELECT s.name AS subject, e.term, e.semester, e.exam_type, e.max_score,
               g.score, g.grade_letter,
               ROUND((g.score/e.max_score)*100,1) AS percentage
        FROM grades g

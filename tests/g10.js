@@ -11,7 +11,10 @@ const call = async (tok, method, path, body) => {
 const login = async (e, p) => (await call(null, 'POST', '/auth/login', { email: e, password: p })).body?.data?.accessToken;
 // Each run gets its own dates (base offset from the clock), so re-runs never collide
 let day = Math.floor(Date.now() / 1000) % 20000;
-const nextDate = () => new Date(Date.UTC(2030, 0, 1) + (day++) * 86400000).toISOString().slice(0, 10);
+// Dates inside 9A/9B's year (2024/2025: exam dates must lie in the class's year, M5a), from a random
+// start so reruns rarely reuse a date
+const first = Math.floor(Math.random() * 330);
+const nextDate = () => new Date(Date.UTC(2024, 8, 2) + ((first + day++) % 330) * 86400000).toISOString().slice(0, 10);
 const NONE = '00000000-0000-0000-0000-000000000000';
 
 (async () => {
@@ -74,11 +77,15 @@ const NONE = '00000000-0000-0000-0000-000000000000';
   ok(viaGrades.headers.get('deprecation') === 'true' && /exam-schedule/.test(viaGrades.headers.get('link') || ''), 'grades/exams responses carry Deprecation + Link headers');
   ok(!viaSched.headers.get('deprecation'), 'exam-schedule is not marked deprecated');
 
-  console.log('== No active academic year (both endpoints -> 400, not 500)');
+  console.log('== No active academic year: the exam takes its class\'s year (M5a), so both endpoints still work');
   const cur = (await pool.query('SELECT id FROM academic_years WHERE is_current')).rows[0].id;
   await pool.query('UPDATE academic_years SET is_current = FALSE');
   try {
-    for (const p of Object.values(ENDPOINTS)) ok((await call(T.admin, 'POST', p, body(G.c9A, G.math))).status === 400, `${p} without active year -> 400`);
+    for (const p of Object.values(ENDPOINTS)) {
+      const r = await call(T.admin, 'POST', p, body(G.c9A, G.math, { max_score: 1 }));
+      const ex = r.body?.data?.exam ?? r.body?.data;
+      ok(r.status === 201 && ex?.academic_year_id === cur, `${p} without an active year -> 201, in the class's year`, `got ${r.status} ${r.body?.message}`);
+    }
   } finally {
     await pool.query('UPDATE academic_years SET is_current = (id = $1)', [cur]);
   }

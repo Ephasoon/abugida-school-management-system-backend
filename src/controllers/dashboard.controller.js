@@ -50,7 +50,7 @@ const getTeacherDashboard = async (req, res) => {
 
     // Upcoming exams (next 14 days) in own classes
     const { rows: upcoming } = await db.query(
-      `SELECT e.id, e.name, e.exam_type, e.term, e.exam_date,
+      `SELECT e.id, e.name, e.exam_type, e.term, e.semester, e.exam_date,
               c.name AS class_name, s.name AS subject_name, s.name_am AS subject_name_am,
               (e.exam_date - CURRENT_DATE) AS days_until
        FROM exams e
@@ -64,7 +64,7 @@ const getTeacherDashboard = async (req, res) => {
 
     // Grading to do: own class+subject exams (already held or undated) with grades missing
     const { rows: grading } = await db.query(
-      `SELECT e.id, e.name, e.term, e.exam_date, c.name AS class_name, s.name AS subject_name, s.name_am AS subject_name_am,
+      `SELECT e.id, e.name, e.term, e.semester, e.exam_date, c.name AS class_name, s.name AS subject_name, s.name_am AS subject_name_am,
               (SELECT COUNT(*)::int FROM grades g WHERE g.exam_id = e.id) AS graded,
               (SELECT COUNT(*)::int FROM students st WHERE st.class_id = e.class_id AND st.status = 'active') AS students
        FROM exams e
