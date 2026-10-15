@@ -92,6 +92,7 @@ cmd.exe is usually WSL's. Set `GIT_BASH` if Git is installed somewhere unusual.
 | `mkstudents.js` | Creates throwaway students for g2b. The runner calls it |
 | `g3fix.js` → `g3.json` | One-time fixture (teachers, students, parent, classes) used by g3, g4, g4b and g7–g12. `g3.json` holds the ids in the current scratch DB. Re-run `g3fix.js` and save its output to `g3.json` only for a fresh scratch DB |
 | `fixture.js` | One-time fixture: the student with grades, payments and attendance used by g1, g4 and g6 |
+| `m4demo.js` | Scratch setup for trying the attendance screens by hand: the year around today current, class 5A with 4 students, teacher A assigned; `--restore` undoes it (run it before the suites) |
 | `setpw.js` | Set a user's password in the scratch DB (`node tests/setpw.js <email> <password>`) |
 | `fresh.js` | Optional: runs every migration in a temporary `fresh_install` schema, then drops it |
 | `cleanup_uploads.js` | Optional: deletes files that tests uploaded under `uploads/documents` |
