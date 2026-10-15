@@ -96,6 +96,7 @@ cmd.exe is usually WSL's. Set `GIT_BASH` if Git is installed somewhere unusual.
 | `g3fix.js` → `g3.json` | One-time fixture (teachers, students, parent, classes) used by g3, g4, g4b and g7–g12. `g3.json` holds the ids in the current scratch DB. Re-run `g3fix.js` and save its output to `g3.json` only for a fresh scratch DB |
 | `fixture.js` | One-time fixture: the student with grades, payments and attendance used by g1, g4 and g6 |
 | `examreset.js` | Removes the exams earlier runs left in the fixture classes 9A and 9B, so a run starts under the 100-point limit per subject and semester (D25). The runner calls it; the suites use small max scores there |
+| `check_m5a.js` | The M5a rehearsal: 020 and 021 checks plus the empty 022 tables, for the three migrations in one run (`bash tests/restore_check.sh m5a tests/check_m5a.js`) |
 | `check_021.js` | Dry run and before/after check for migration 021 (results): letters kept but no longer filled, the max-score check still refuses, settings seeded |
 | `check_020.js` | Dry run and before/after check for migration 020 (semesters): exams per term and date, term/date disagreements, exams dated outside their year, term3 exams, subjects over 100 per semester (`bash tests/restore_check.sh 020 tests/check_020.js`) |
 | `m4demo.js` | Scratch setup for trying the attendance screens by hand: the year around today current, class 5A with 4 students, teacher A assigned; `--restore` undoes it (run it before the suites) |
