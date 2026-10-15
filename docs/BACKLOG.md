@@ -2,6 +2,13 @@
 
 Items agreed but not yet scheduled. Newest first.
 
+## School holidays list (incl. movable Ethiopian holidays)
+
+M4 has no holiday list (D31): unmarked days do not count, so rates are right, but the
+monthly report shows a holiday on a weekday as "not marked". Add an admin-managed list of
+school holidays per academic year, including the movable Ethiopian holidays (Fasika,
+Siklet, Eid al-Fitr, Eid al-Adha, Mawlid), and grey those days out in the report.
+
 ## Validate ids in request bodies like route ids
 
 *Added 2026-10-14 · backend · **done 2026-10-14** (M3, `feat/g10-body-ids`)*

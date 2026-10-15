@@ -36,7 +36,8 @@ const tag = Date.now().toString(36);
   const left = await stu('Eden', '8A');
   await call(A, 'DELETE', `/students/${left.id}`); // archived: not part of a promotion
   const login12 = await call(A, 'POST', `/accounts/students/${dina.id}/login`, { email: `g23_${tag}@asms.et` });
-  await call(A, 'POST', '/attendance', { class_id: cls['8A'], date: '2026-01-06', records: [{ student_id: abeba.id, status: 'present' }] });
+  // A record in last year's class (straight into the scratch DB: the test year is in the future, where the API refuses to mark)
+  await pool.query("INSERT INTO attendance (student_id, class_id, date, status) VALUES ($1, $2, $3, 'present')", [abeba.id, cls['8A'], `${from.name.slice(0, 4)}-10-01`]);
   await call(A, 'POST', `/academic-years/${to.id}/copy-classes`, { from_year_id: from.id });
 
   const preview = (body, year = to.id) => call(A, 'POST', `/academic-years/${year}/promotion-preview`, body);

@@ -16,6 +16,8 @@ const db            = require('../config/db');
 const { sendSuccess,
         sendError } = require('../utils/response');
 const { sendServerError } = require('../utils/errors');
+const { rateSql } = require('../utils/attendance');
+const RATE   = rateSql();   // attendance rate (M4): late attended, excused left out
 
 
 // ── Security: verify parent owns this child ───────────────────
@@ -96,7 +98,7 @@ const getChildSummary = async (req, res) => {
       `SELECT COUNT(*) FILTER (WHERE status='present') AS present,
               COUNT(*) FILTER (WHERE status='absent')  AS absent,
               COUNT(*) FILTER (WHERE status='late')    AS late,
-              ROUND(COUNT(*) FILTER (WHERE status='present')*100.0/NULLIF(COUNT(*),0),1) AS rate
+              ${RATE} AS rate
        FROM attendance WHERE student_id=$1
        AND date >= date_trunc('month', CURRENT_DATE)`, [studentId]
     );
@@ -186,7 +188,7 @@ const getChildAttendance = async (req, res) => {
               COUNT(*) FILTER (WHERE status='present') AS present,
               COUNT(*) FILTER (WHERE status='absent')  AS absent,
               COUNT(*) FILTER (WHERE status='late')    AS late,
-              ROUND(COUNT(*) FILTER(WHERE status='present')*100.0/NULLIF(COUNT(*),0),1) AS rate
+              ${RATE} AS rate
        FROM attendance WHERE student_id=$1`, [studentId]
     );
 
@@ -195,7 +197,7 @@ const getChildAttendance = async (req, res) => {
               COUNT(*) AS total,
               COUNT(*) FILTER (WHERE status='present') AS present,
               COUNT(*) FILTER (WHERE status='absent')  AS absent,
-              ROUND(COUNT(*) FILTER(WHERE status='present')*100.0/NULLIF(COUNT(*),0),1) AS rate
+              ${RATE} AS rate
        FROM attendance WHERE student_id=$1
        GROUP BY TO_CHAR(date,'YYYY-MM')
        ORDER BY month DESC LIMIT 6`, [studentId]

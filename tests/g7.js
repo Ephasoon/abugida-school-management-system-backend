@@ -61,10 +61,12 @@ const check = (cond, label, extra = '') => { if (cond) pass++; else { fail++; fa
     ['POST', '/teachers', { first_name: 'X', last_name: 'Y', email: 'x@y.z' }, { principal: no, tA: no }],
     ['POST', `/teachers/${G.tB.tid}/classes`, { class_id: C9A, subject_id: G.eng }, { principal: no, tA: no }],
     // Attendance
-    ['POST', '/attendance', { class_id: C9A, date: '2026-10-05', records: [{ student_id: S1, status: 'present' }] }, { admin: created, tA: created, tB: no, principal: no, student: no, parent: no }],
-    ['POST', '/attendance', { class_id: C9B, date: '2026-10-05', records: [{ student_id: S3, status: 'present' }] }, { tA: no, admin: created }],
-    ['POST', '/attendance', { class_id: C9A, date: '2026-10-05', records: [{ student_id: S3, status: 'present' }] }, { tA: no }],
-    ['POST', '/attendance', { date: '2026-10-05', records: [{ student_id: S1, status: 'present' }] }, { admin: 400 }],
+    // 9A's year (2024/2025) is in the past (M4): the admin marks a date inside it; teacher A is
+    // refused by the date rules (teacher marking is covered by g24 on a year around today)
+    ['POST', '/attendance', { class_id: C9A, date: '2025-03-03', records: [{ student_id: S1, status: 'present' }] }, { admin: created, tA: no, tB: no, principal: no, student: no, parent: no }],
+    ['POST', '/attendance', { class_id: C9B, date: '2025-03-03', records: [{ student_id: S3, status: 'present' }] }, { tA: no, admin: created }],
+    ['POST', '/attendance', { class_id: C9A, date: '2025-03-03', records: [{ student_id: S3, status: 'present' }] }, { tA: no }],
+    ['POST', '/attendance', { date: '2025-03-03', records: [{ student_id: S1, status: 'present' }] }, { admin: 400 }],
     ['GET', `/attendance/student/${S1}`, null, { admin: ok, principal: ok, tA: ok, tB: no, student: ok, parent: ok }],
     ['GET', `/attendance/student/${S3}`, null, { tA: no, student: no, parent: no }],
     ['GET', `/attendance/report/${C9A}`, null, { principal: ok, tA: ok, tB: no, student: no, parent: no }],
