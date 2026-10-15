@@ -23,19 +23,19 @@ const { sendServerError } = require('../utils/errors');
 const { parsePagination } = require('../utils/pagination');
 const { audit }           = require('../utils/audit');
 const { inTransaction }   = require('../utils/transaction');
-const { STATUSES, TEACHER_WINDOW_DAYS, rateSql, isIsoDate, teacherWindow } = require('../utils/attendance');
+const { STATUSES, TEACHER_WINDOW_DAYS, rateSql, isIsoDate, localDate, addDays, teacherWindow } = require('../utils/attendance');
 const RATE   = rateSql();   // attendance rate (M4): late attended, excused left out
 const RATE_A = rateSql('a');   // attendance rate (M4): late attended, excused left out
 
 const MAX_RECORDS = 500;
 const MAX_TEXT    = 500;
 
-// A class with its academic year, or null
+// A class with its academic year, or null (also for a malformed id: compared as text)
 const loadClass = async (classId) => (await db.query(
   `SELECT c.id, c.name, c.grade_level, c.section, c.academic_year_id,
           y.name AS year_name, y.start_date, y.end_date, y.is_current
    FROM classes c JOIN academic_years y ON y.id = c.academic_year_id
-   WHERE c.id = $1`, [classId])).rows[0] || null;
+   WHERE c.id::text = $1`, [String(classId).toLowerCase()])).rows[0] || null;
 
 // Whether this user may mark `cls` on `date`: { allowed, code, message }
 // (codes: future, outside_year, not_current_year, too_old, role)
@@ -341,56 +341,110 @@ const getStudentAttendance = async (req, res) => {
 
 
 // ── GET /api/attendance/report/:classId ──────────────────────
-// Monthly attendance report for a whole class.
-// Shows each student's attendance rate for the month.
+// Attendance report for a class over a date range: a students × days grid with totals.
+// Query: from, to ('YYYY-MM-DD', at most MAX_REPORT_DAYS days; the app sends the Gregorian
+// range of an Ethiopian month), or the older month (1-12) + year (a Gregorian month;
+// default: this month).
+//   days:     Monday–Friday of the range, plus a Saturday or Sunday that has records (D31),
+//             each with the number of records
+//   students: the active students of the class plus anyone with a record in it in the range,
+//             each with records { date: { id, status, note } } and totals (rate: D32)
+const MAX_REPORT_DAYS = 62;
+
 const getClassReport = async (req, res) => {
   try {
-    const { classId }          = req.params;
-    const { month, year }      = req.query;
+    const { classId } = req.params;
+    const { from, to, month, year } = req.query;
 
-    const reportMonth = month || new Date().getMonth() + 1;
-    const reportYear  = year  || new Date().getFullYear();
+    let start, end;
+    if (from !== undefined || to !== undefined) {
+      if (!isIsoDate(from)) return sendError(res, 'from must be a real date in YYYY-MM-DD format.', 400, { field: 'from' });
+      if (!isIsoDate(to))   return sendError(res, 'to must be a real date in YYYY-MM-DD format.', 400, { field: 'to' });
+      if (to < from) return sendError(res, 'to must not be before from.', 400, { field: 'to' });
+      if (addDays(from, MAX_REPORT_DAYS - 1) < to) {
+        return sendError(res, `The report covers at most ${MAX_REPORT_DAYS} days.`, 400, { field: 'to' });
+      }
+      [start, end] = [from, to];
+    } else {
+      if (month !== undefined && !/^(0?[1-9]|1[0-2])$/.test(String(month))) return sendError(res, 'month must be 1 to 12.', 400, { field: 'month' });
+      if (year !== undefined && !/^\d{4}$/.test(String(year))) return sendError(res, 'year must be a 4-digit year.', 400, { field: 'year' });
+      const today = localDate();
+      const y = Number(year ?? today.slice(0, 4));
+      const m = Number(month ?? today.slice(5, 7));
+      start = `${y}-${String(m).padStart(2, '0')}-01`;
+      end = addDays(m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`, -1);
+    }
 
-    const { rows } = await db.query(
-      `SELECT
-         s.student_number,
-         s.first_name,
-         s.last_name,
-         COUNT(a.id)                                          AS total_days,
-         COUNT(a.id) FILTER (WHERE a.status = 'present')     AS present,
-         COUNT(a.id) FILTER (WHERE a.status = 'absent')      AS absent,
-         COUNT(a.id) FILTER (WHERE a.status = 'late')        AS late,
-         COUNT(a.id) FILTER (WHERE a.status = 'excused')     AS excused,
-         ${RATE_A}                                                    AS attendance_rate
+    const cls = await loadClass(classId);
+    if (!cls) return sendError(res, 'Class not found.', 404);
+
+    // Students: active in the class now, or with a record in this class in the range
+    const { rows: students } = await db.query(
+      `SELECT s.id AS student_id, s.student_number, s.first_name, s.last_name, s.fathers_name,
+              s.first_name_am, s.fathers_name_am, s.last_name_am, s.status AS student_status,
+              COUNT(a.id)                                      AS total_days,
+              COUNT(a.id) FILTER (WHERE a.status = 'present')  AS present,
+              COUNT(a.id) FILTER (WHERE a.status = 'absent')   AS absent,
+              COUNT(a.id) FILTER (WHERE a.status = 'late')     AS late,
+              COUNT(a.id) FILTER (WHERE a.status = 'excused')  AS excused,
+              ${RATE_A}                                        AS attendance_rate
        FROM students s
        LEFT JOIN attendance a
-         ON  a.student_id = s.id
-         AND EXTRACT(MONTH FROM a.date) = $2
-         AND EXTRACT(YEAR  FROM a.date) = $3
-       WHERE s.class_id = $1
-         AND s.status   = 'active'
-       GROUP BY s.id, s.student_number, s.first_name, s.last_name
-       ORDER BY attendance_rate DESC NULLS LAST`,
-      [classId, reportMonth, reportYear]
-    );
+         ON a.student_id = s.id AND a.class_id = $1 AND a.date BETWEEN $2 AND $3
+       WHERE (s.class_id = $1 AND s.status = 'active')
+          OR EXISTS (SELECT 1 FROM attendance x WHERE x.student_id = s.id AND x.class_id = $1 AND x.date BETWEEN $2 AND $3)
+       GROUP BY s.id
+       ORDER BY s.first_name, s.last_name, s.student_number`,
+      [classId, start, end]);
 
-    // Class-wide summary
+    const { rows: records } = await db.query(
+      `SELECT id, student_id, date, status, note FROM attendance
+       WHERE class_id = $1 AND date BETWEEN $2 AND $3`, [classId, start, end]);
+
+    const byStudent = new Map(students.map(s => [s.student_id, {}]));
+    const perDay = new Map();
+    for (const r of records) {
+      const grid = byStudent.get(r.student_id);
+      if (grid) grid[r.date] = { id: r.id, status: r.status, note: r.note };
+      perDay.set(r.date, (perDay.get(r.date) || 0) + 1);
+    }
+
+    const days = [];
+    for (let d = start; d <= end; d = addDays(d, 1)) {
+      const weekday = new Date(`${d}T00:00:00Z`).getUTCDay();   // 0 Sunday … 6 Saturday
+      const marked = perDay.get(d) || 0;
+      if ((weekday >= 1 && weekday <= 5) || marked) days.push({ date: d, weekday, marked });
+    }
+
+    const num = (v) => Number(v);
+    const rows = students.map(s => ({
+      ...s,
+      total_days: num(s.total_days), present: num(s.present), absent: num(s.absent),
+      late: num(s.late), excused: num(s.excused),
+      attendance_rate: s.attendance_rate === null ? null : Number(s.attendance_rate),
+      records: byStudent.get(s.student_id),
+    }));
+    const rated = rows.filter(r => r.attendance_rate !== null);
+    const sum = (k) => rows.reduce((t, r) => t + r[k], 0);
     const classStats = {
       total_students:      rows.length,
-      avg_attendance_rate: rows.length
-        ? (rows.reduce((sum, r) => sum + parseFloat(r.attendance_rate || 0), 0) / rows.length).toFixed(1)
-        : 0,
-      perfect_attendance:  rows.filter(r => parseFloat(r.attendance_rate) === 100).length,
-      below_75_percent:    rows.filter(r => parseFloat(r.attendance_rate) < 75).length,
+      days_marked:         days.filter(d => d.marked).length,
+      present: sum('present'), absent: sum('absent'), late: sum('late'), excused: sum('excused'),
+      avg_attendance_rate: rated.length ? Number((rated.reduce((t, r) => t + r.attendance_rate, 0) / rated.length).toFixed(1)) : null,
+      perfect_attendance:  rated.filter(r => r.attendance_rate === 100).length,
+      below_75_percent:    rated.filter(r => r.attendance_rate < 75).length,
     };
 
     return sendSuccess(res, {
-      class_id:   classId,
-      month:      reportMonth,
-      year:       reportYear,
+      class_id: classId,
+      class: { id: cls.id, name: cls.name, grade_level: cls.grade_level, section: cls.section, academic_year_id: cls.academic_year_id, year_name: cls.year_name },
+      from: start,
+      to: end,
+      ...(from === undefined ? { month: Number(start.slice(5, 7)), year: Number(start.slice(0, 4)) } : {}),
+      days,
       class_stats: classStats,
-      students:   rows,
-    }, `Monthly attendance report for ${reportMonth}/${reportYear}.`);
+      students: rows,
+    }, `Attendance report ${start} to ${end}.`);
 
   } catch (err) {
     return sendServerError(res, err, 'Server error while generating report.');
