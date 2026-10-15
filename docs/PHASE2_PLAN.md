@@ -518,6 +518,8 @@ change old results):**
 
 **Built (M5a C, 2026-10-16, migration 022):** `semester_conduct`, `promotion_decisions`, `semester_locks` (one lock per year, semester and class, one whole-school lock per year and semester). `services/locks.service.js` holds the checks: scores, exams (create, edit, cancel, moving into a semester), conduct, promotion decisions (refused while semester 2 is locked, the year's end), attendance marked or corrected inside a locked semester's dates (M5a decision 3), and a changed `semester2_start` (any lock in the year). The homeroom endpoint was dropped: `PUT /classes/:id` sets `homeroom_teacher_id` (M5a decision 1). The results carry each semester's conduct, remark and `final` (locked) flag. The promotion preview (M7a) gives each student's yearly result, `suggested_repeat` (not promoted) and `warnings` (incomplete, pending); the admin still decides (M5a decision 2).
 
+**Built (M5a D, 2026-10-16):** the report card PDF is drawn from `studentResults`: subjects with semester 1, semester 2 and yearly scores ("*" incomplete, "check" over 100), total, average and "Rank n of m" per semester and year, the class size and how many are not ranked, days absent / late / excused, conduct and the homeroom remark, the yearly promotion when there is one, and per semester "Final" (locked) or "Provisional" in the footer. `?academic_year_id=` picks the year; the old `?term=` / `?semester=` are validated and print the same report card. The old PDF rank bug (all grades ever) is gone.
+
 **Tests:** a new suite with fixed fixtures covers:
 - totals, averages, both semesters, the yearly figures
 - ties (1, 2, 2, 4) and incomplete students

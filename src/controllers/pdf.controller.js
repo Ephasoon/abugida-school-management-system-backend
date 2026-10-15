@@ -15,19 +15,25 @@ const {
 } = require('../services/pdf.service');
 const { sendError } = require('../utils/response');
 const { sendServerError } = require('../utils/errors');
-const { rateSql } = require('../utils/attendance');
-const RATE   = rateSql();   // attendance rate (M4): late attended, excused left out
 
 const { semesterFilter } = require('../utils/semesters');
+const { studentResults, ResultsError } = require('../services/results.service');
 
 
-// ── GET /api/pdf/report-card/:studentId ──────────────────────
+// ── GET /api/pdf/report-card/:studentId?academic_year_id= ────
+// Both semesters and the year from the results service (M5a, B2), so the PDF shows the
+// same numbers as the report card and the class results. The old ?term= / ?semester=
+// are still accepted (validated) and print the same full report card.
 const getReportCardPDF = async (req, res) => {
   try {
     const { studentId } = req.params;
     const sf = semesterFilter(req.query);
+    if (sf.error) return sendError(res, sf.error, 400, { field: 'semester' });
+    const { academic_year_id } = req.query;
+    if (academic_year_id !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(academic_year_id))) {
+      return sendError(res, 'academic_year_id does not exist.', 400, { field: 'academic_year_id' });
+    }
 
-    // Get full student + grades data
     const { rows: stuRows } = await db.query(
       `SELECT s.*, c.name AS class_name, c.grade_level, c.section,
               ay.name AS academic_year
@@ -37,99 +43,24 @@ const getReportCardPDF = async (req, res) => {
        WHERE s.id = $1`,
       [studentId]
     );
+    if (!stuRows[0]) return sendError(res, 'Student not found.', 404);
 
-    if (!stuRows[0]) {
-      return sendError(res, 'Student not found.', 404);
+    let results = null;
+    try {
+      results = await studentResults(studentId, academic_year_id);
+    } catch (err) {
+      if (!(err instanceof ResultsError) || err.status !== 404) throw err;   // no class / results yet
     }
 
-    // Get grades grouped by subject
-    if (sf.error) return sendError(res, sf.error, 400, { field: 'semester' });
-    const termFilter = sf.semester ? 'AND e.semester = $2' : '';
-    const gradeParams = sf.semester ? [studentId, sf.semester] : [studentId];
-    const { rows: gradeRows } = await db.query(
-      `SELECT s.name AS subject, s.name AS subject_name, s.code,
-              e.term, e.semester, e.exam_type, e.max_score,
-              g.score, g.grade_letter,
-              ROUND((g.score/e.max_score)*100, 1) AS percentage
-       FROM grades g
-       JOIN exams    e ON e.id  = g.exam_id
-       JOIN subjects s ON s.id  = e.subject_id
-       WHERE g.student_id = $1 ${termFilter}
-       ORDER BY s.name, e.exam_type`,
-      gradeParams
-    );
-
-    // Group by subject and calculate averages
-    const subjectMap = {};
-    gradeRows.forEach(row => {
-      if (!subjectMap[row.subject]) {
-        subjectMap[row.subject] = {
-          subject:      row.subject,
-          subject_name: row.subject_name,
-          exams:        [],
-          average:      0,
-          grade_letter: '',
-          grade_points: 0,
-        };
-      }
-      subjectMap[row.subject].exams.push(row);
-    });
-
-    const subjects = Object.values(subjectMap).map(sub => {
-      const total    = sub.exams.reduce((s,e) => s + parseFloat(e.score), 0);
-      const maxTotal = sub.exams.reduce((s,e) => s + parseFloat(e.max_score), 0);
-      const avg      = maxTotal > 0 ? (total / maxTotal) * 100 : 0;
-      sub.average      = avg.toFixed(1);
-      sub.grade_letter = percentageToGrade(avg);
-      sub.grade_points = gradeToPoints(sub.grade_letter);
-      return sub;
-    });
-
-    // Calculate GPA and rank
-    const gpa = subjects.length
-      ? (subjects.reduce((s,sub) => s + sub.grade_points, 0) / subjects.length).toFixed(2)
-      : '0.00';
-
-    // Attendance
-    const { rows: attRows } = await db.query(
-      `SELECT COUNT(*) AS total_days,
-              COUNT(*) FILTER (WHERE status='present') AS present,
-              COUNT(*) FILTER (WHERE status='absent')  AS absent,
-              COUNT(*) FILTER (WHERE status='late')    AS late,
-              ${RATE} AS rate
-       FROM attendance WHERE student_id = $1`,
-      [studentId]
-    );
-
-    // Rank in class
-    const { rows: rankRows } = await db.query(
-      `SELECT student_id,
-              ROUND(AVG((g.score/e.max_score)*100), 2) AS avg
-       FROM grades g JOIN exams e ON e.id=g.exam_id
-       WHERE e.class_id = $1
-       GROUP BY student_id ORDER BY avg DESC`,
-      [stuRows[0].class_id]
-    );
-    const rankIdx = rankRows.findIndex(r => r.student_id === studentId);
-
-    const data = {
-      student:  stuRows[0],
-      subjects,
-      academic_summary: {
-        gpa,
-        rank:           rankIdx >= 0 ? rankIdx + 1 : null,
-        total_in_class: rankRows.length,
-        result:         parseFloat(gpa) >= 2.0 ? 'PASS' : 'FAIL',
-      },
-      attendance: attRows[0],
+    await generateReportCard({
+      student: stuRows[0],
+      results,
       school: {
-        name:          process.env.SCHOOL_NAME || 'Äbugida School',
-        code:          process.env.SCHOOL_CODE || 'ASMS',
-        academic_year: process.env.ACADEMIC_YEAR || '2024/2025',
+        name:    process.env.SCHOOL_NAME || 'Äbugida School',
+        name_am: process.env.SCHOOL_NAME_AM ?? (process.env.SCHOOL_NAME ? '' : undefined),
+        code:    process.env.SCHOOL_CODE || 'ASMS',
       },
-    };
-
-    await generateReportCard(data, res);
+    }, res);
 
   } catch (err) {
     if (!res.headersSent) {
@@ -200,27 +131,6 @@ const getTeacherIDCardPDF = async (req, res) => {
     console.error('ID card PDF failed after streaming started:', err);
   }
 };
-
-
-// ── Helpers ───────────────────────────────────────────────────
-const percentageToGrade = (pct) => {
-  if (pct >= 90) return 'A+';
-  if (pct >= 85) return 'A';
-  if (pct >= 80) return 'A-';
-  if (pct >= 75) return 'B+';
-  if (pct >= 70) return 'B';
-  if (pct >= 65) return 'B-';
-  if (pct >= 60) return 'C+';
-  if (pct >= 55) return 'C';
-  if (pct >= 50) return 'C-';
-  if (pct >= 45) return 'D';
-  return 'F';
-};
-
-const gradeToPoints = (l) => ({
-  'A+':4.0,'A':4.0,'A-':3.7,'B+':3.3,'B':3.0,'B-':2.7,
-  'C+':2.3,'C':2.0,'C-':1.7,'D':1.0,'F':0.0,
-}[l] || 0);
 
 
 module.exports = {

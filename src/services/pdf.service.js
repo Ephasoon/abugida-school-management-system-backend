@@ -53,230 +53,168 @@ const COLORS = {
   border:     '#DEE2E6',
 };
 
-// ── Grade Letter Color ─────────────────────────────────────────
-const gradeColor = (letter) => {
-  if (!letter) return COLORS.gray;
-  if (letter.startsWith('A')) return COLORS.green;
-  if (letter.startsWith('B')) return COLORS.blue;
-  if (letter.startsWith('C')) return COLORS.gold;
-  return COLORS.red;
+
+// ═══════════════════════════════════════════════════════════════
+// 1. REPORT CARD PDF (M5a, B2): both semesters and the year from the results service
+// ═══════════════════════════════════════════════════════════════
+// data: { student, results (results.service studentResults, or null), school }
+// Scores out of 100, no letters or GPA. "Rank 2 of 36" (36 ranked); the class size and the
+// number not ranked underneath. Days absent / late / excused, conduct and the homeroom
+// remark per semester. Promotion for the year only, when there is a result (D17, D26).
+// The footer says per semester whether it is Final (locked) or Provisional (D29).
+const PROMOTION_TEXT = {
+  promoted: 'Promoted · ተዛውሯል',
+  not_promoted: 'Not promoted · አልተዛወረም',
+  pending: 'Promotion pending · ውሳኔ በመጠባበቅ ላይ',
 };
+const one = (v) => (v === null || v === undefined ? '—' : Number(v).toFixed(1));
+const two = (v) => (v === null || v === undefined ? '—' : Number(v).toFixed(2));
+const rankText = (rank, of) => (rank ? `${rank} of ${of}` : 'not ranked');
 
-// ── Grade to GPA Points ───────────────────────────────────────
-const gradePoints = (letter) => ({
-  'A+':4.0,'A':4.0,'A-':3.7,
-  'B+':3.3,'B':3.0,'B-':2.7,
-  'C+':2.3,'C':2.0,'C-':1.7,
-  'D':1.0,'F':0.0,
-}[letter] || 0);
-
-
-// ═══════════════════════════════════════════════════════════════
-// 1. REPORT CARD PDF
-// ═══════════════════════════════════════════════════════════════
 const generateReportCard = async (data, res) => {
-  const { student, subjects, academic_summary, attendance, school } = data;
+  const { student, results, school } = data;
 
   const doc = newDocument({
     size:    'A4',
     margins: { top: 40, bottom: 40, left: 50, right: 50 },
   });
 
-  // Pipe to response
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition',
     `attachment; filename="report-card-${student.student_number}.pdf"`);
   doc.pipe(res);
 
-  const W    = doc.page.width;
-  const H    = doc.page.height;
-  const PL   = 50;  // Padding left
-  const PR   = 50;  // Padding right
-  const CW   = W - PL - PR; // Content width
+  const W  = doc.page.width;
+  const H  = doc.page.height;
+  const PL = 50;
+  const CW = W - PL - 50;
+  const year = results?.academic_year;
+  const yearLabel = year ? academicYearLabel(year.name, year.end_date) : (student.academic_year || '');
+  const s1 = results?.semesters.semester1, s2 = results?.semesters.semester2, yr = results?.year;
 
-  // ── Header Bar ───────────────────────────────────────────────
+  // ── Header ───────────────────────────────────────────────────
   doc.rect(0, 0, W, 100).fill(COLORS.primary);
-
-  // Gold accent line
   doc.rect(0, 100, W, 5).fill(COLORS.gold);
-
-  // School name
-  doc.font('Bold').fontSize(18).fillColor(COLORS.white)
-     .text(school?.name || 'Äbugida School', PL, 22, { width: CW * 0.7 });
-
-  doc.font('Body').fontSize(10).fillColor(COLORS.gold)
-     .text('STUDENT REPORT CARD', PL, 46);
-
+  doc.font('Bold').fontSize(16).fillColor(COLORS.white).text(schoolLine(school), PL, 20, { width: CW * 0.75 });
+  doc.font('Body').fontSize(10).fillColor(COLORS.gold).text('STUDENT REPORT CARD · የተማሪ ውጤት መግለጫ', PL, 46);
   doc.font('Body').fontSize(9).fillColor(COLORS.gray)
-     .text(school?.academic_year || '2024/2025', PL, 60)
-     .text(`Generated: ${formatEthiopian(todayIso())}`, PL, 73);
+     .text(`Academic year: ${yearLabel}`, PL, 61)
+     .text(`Generated: ${formatEthiopian(todayIso())}`, PL, 74);
+  doc.rect(W - 120, 20, 15, 60).fill('#009A44');
+  doc.rect(W - 105, 20, 15, 60).fill(COLORS.gold);
+  doc.rect(W - 90,  20, 15, 60).fill('#EF2118');
 
-  // Ethiopian flag colors accent
-  doc.rect(W - 120, 20, 15, 60).fill('#009A44'); // Green
-  doc.rect(W - 105, 20, 15, 60).fill(COLORS.gold); // Yellow
-  doc.rect(W - 90,  20, 15, 60).fill('#EF2118');  // Red
+  // ── Student ──────────────────────────────────────────────────
+  let y = 120;
+  const am = amharicName(student.first_name_am, student.fathers_name_am, student.last_name_am);
+  doc.rect(PL, y, CW, am ? 72 : 58).fill(COLORS.light_gray);
+  doc.font('Bold').fontSize(13).fillColor(COLORS.primary)
+     .text([student.first_name, student.fathers_name, student.last_name].filter(Boolean).join(' '), PL + 12, y + 8, { width: CW - 24 });
+  let line = y + 26;
+  if (am) { doc.font('Body').fontSize(11).fillColor(COLORS.primary).text(am, PL + 12, line); line += 16; }
+  const cls = results?.class;
+  doc.font('Body').fontSize(9).fillColor(COLORS.gray)
+     .text(`Student number: ${student.student_number}   ·   Class: ${cls?.name || student.class_name || '—'}   ·   ${yearLabel}`, PL + 12, line + 2, { width: CW - 24 });
+  y += (am ? 72 : 58) + 14;
 
-  // ── Student Info Section ─────────────────────────────────────
-  let y = 125;
+  if (!results) {
+    doc.font('Body').fontSize(11).fillColor(COLORS.gray).text('No results yet for this student.', PL, y);
+    footer(doc, W, H, PL, CW, 'Provisional');
+    doc.end();
+    return;
+  }
 
-  doc.rect(PL, y, CW, 80).fill(COLORS.light_gray).stroke(COLORS.border);
-
-  // Student avatar circle
-  doc.circle(PL + 35, y + 40, 28).fill(COLORS.primary);
-  doc.font('Bold').fontSize(18).fillColor(COLORS.white)
-     .text(
-       (student.first_name?.[0] || '') + (student.last_name?.[0] || ''),
-       PL + 17, y + 29
-     );
-
-  // Student details
-  const infoX = PL + 75;
-  doc.font('Bold').fontSize(14).fillColor(COLORS.primary)
-     .text(`${student.first_name} ${student.last_name}${student.fathers_name ? ' ' + student.fathers_name : ''}`,
-       infoX, y + 12);
-
-  doc.font('Body').fontSize(10).fillColor(COLORS.gray)
-     .text(`Student ID: ${student.student_number}`, infoX, y + 32)
-     .text(`Class: ${student.class_name || 'N/A'}  |  Grade: ${student.grade_level || 'N/A'}  |  Section: ${student.section || 'N/A'}`,
-       infoX, y + 46)
-     .text(`Academic Year: ${student.academic_year || '2024/2025'}  |  Gender: ${student.gender || 'N/A'}`,
-       infoX, y + 60);
-
-  y += 100;
-
-  // ── Academic Summary Bar ──────────────────────────────────────
-  const summaryItems = [
-    { label: 'GPA',        value: academic_summary?.gpa || '0.00',       color: COLORS.gold },
-    { label: 'Rank',       value: academic_summary?.rank
-        ? `${academic_summary.rank}/${academic_summary.total_in_class}` : 'N/A', color: COLORS.blue },
-    { label: 'Attendance', value: `${attendance?.rate || 0}%`,            color: COLORS.green },
-    { label: 'Result',     value: academic_summary?.result || 'N/A',
-      color: academic_summary?.result === 'PASS' ? COLORS.green : COLORS.red },
-  ];
-
-  const boxW = CW / summaryItems.length;
-  summaryItems.forEach((item, i) => {
-    const x = PL + (i * boxW);
-    doc.rect(x, y, boxW - 4, 60).fill(COLORS.primary);
-    doc.font('Bold').fontSize(20).fillColor(item.color)
-       .text(item.value, x, y + 10, { width: boxW - 4, align: 'center' });
-    doc.font('Body').fontSize(8).fillColor(COLORS.gray)
-       .text(item.label, x, y + 40, { width: boxW - 4, align: 'center' });
-  });
-
-  y += 75;
-
-  // ── Grades Table ──────────────────────────────────────────────
-  doc.font('Bold').fontSize(12).fillColor(COLORS.primary)
-     .text('ACADEMIC PERFORMANCE', PL, y);
-  y += 18;
-
-  // Table header
-  const cols = { subject: PL, midterm: PL+200, final: PL+270, total: PL+340, grade: PL+410 };
-  doc.rect(PL, y, CW, 22).fill(COLORS.primary);
-  doc.font('Bold').fontSize(9).fillColor(COLORS.white);
-  doc.text('Subject',         cols.subject + 5, y + 7, { width: 180 });
-  doc.text('Midterm',         cols.midterm,      y + 7, { width: 65, align: 'center' });
-  doc.text('Final',           cols.final,        y + 7, { width: 65, align: 'center' });
-  doc.text('Average',         cols.total,        y + 7, { width: 65, align: 'center' });
-  doc.text('Grade',           cols.grade,        y + 7, { width: 60, align: 'center' });
-  y += 22;
-
-  // Table rows
-  (subjects || []).forEach((sub, idx) => {
-    const rowColor = idx % 2 === 0 ? COLORS.white : COLORS.light_gray;
-    doc.rect(PL, y, CW, 20).fill(rowColor);
-
-    // Left border color by grade
-    doc.rect(PL, y, 4, 20).fill(gradeColor(sub.grade_letter));
-
-    doc.font('Body').fontSize(9).fillColor(COLORS.primary);
-    doc.text(sub.subject || sub.subject_name || '—', cols.subject + 8, y + 6, { width: 185 });
-
-    // Find midterm and final scores
-    const midterm = sub.exams?.find(e => e.exam_type === 'midterm');
-    const final   = sub.exams?.find(e => e.exam_type === 'final');
-
-    doc.fillColor(COLORS.gray);
-    doc.text(midterm ? `${midterm.score}/${midterm.max_score}` : '—',
-      cols.midterm, y + 6, { width: 65, align: 'center' });
-    doc.text(final   ? `${final.score}/${final.max_score}`     : '—',
-      cols.final,   y + 6, { width: 65, align: 'center' });
-
-    doc.fillColor(COLORS.primary).font('Bold');
-    doc.text(`${sub.average || '0'}%`, cols.total, y + 6, { width: 65, align: 'center' });
-
-    // Grade badge
-    doc.rect(cols.grade + 10, y + 3, 40, 14)
-       .fill(gradeColor(sub.grade_letter));
-    doc.fillColor(COLORS.white).font('Bold').fontSize(8)
-       .text(sub.grade_letter || '—', cols.grade + 10, y + 6,
-         { width: 40, align: 'center' });
-
+  // ── Results table: subject | semester 1 | semester 2 | year ───
+  const col = { subject: PL, s1: PL + 230, s2: PL + 320, year: PL + 410 };
+  const colW = 85;
+  const header = () => {
+    doc.rect(PL, y, CW, 20).fill(COLORS.primary);
+    doc.font('Bold').fontSize(9).fillColor(COLORS.white);
+    doc.text('Subject · ትምህርት', col.subject + 8, y + 6, { width: 220 });
+    doc.text('Semester 1', col.s1, y + 6, { width: colW, align: 'center' });
+    doc.text('Semester 2', col.s2, y + 6, { width: colW, align: 'center' });
+    doc.text('Year', col.year, y + 6, { width: colW, align: 'center' });
     y += 20;
-
-    // Stop if near bottom
-    if (y > H - 120) {
-      doc.addPage();
-      y = 50;
-    }
+  };
+  header();
+  const cell = (sem, subjectId) => {
+    const s = sem?.subjects.find((x) => x.subject_id === subjectId);
+    if (!s) return '—';
+    if (s.status === 'over_100') return 'check';
+    return s.score === null ? '—' : `${one(s.score)}${s.complete ? '' : ' *'}`;
+  };
+  yr.subjects.forEach((sub, i) => {
+    if (y > H - 200) { doc.addPage(); y = 50; header(); }
+    doc.rect(PL, y, CW, 18).fill(i % 2 === 0 ? COLORS.white : COLORS.light_gray);
+    doc.font('Body').fontSize(9).fillColor(COLORS.primary)
+       .text([sub.name, sub.name_am].filter(Boolean).join(' · '), col.subject + 8, y + 4, { width: 220, height: 12, ellipsis: true });
+    doc.fillColor(COLORS.primary);
+    doc.text(cell(s1, sub.subject_id), col.s1, y + 4, { width: colW, align: 'center' });
+    doc.text(cell(s2, sub.subject_id), col.s2, y + 4, { width: colW, align: 'center' });
+    doc.font('Bold').text(one(sub.score), col.year, y + 4, { width: colW, align: 'center' });
+    y += 18;
   });
+  if (!yr.subjects.length) {
+    doc.font('Body').fontSize(9).fillColor(COLORS.gray).text('No assessments yet.', PL + 8, y + 4);
+    y += 18;
+  }
 
-  // Table bottom border
+  // Totals, averages, ranks
+  const summary = [
+    ['Total', s1 ? one(s1.total) : '—', s2 ? one(s2.total) : '—', ''],
+    ['Average', two(s1?.average), two(s2?.average), two(yr.average)],
+    ['Rank', rankText(s1?.rank, s1?.ranked_count), rankText(s2?.rank, s2?.ranked_count), rankText(yr.rank, yr.ranked_count)],
+    ['Days absent · የቀሩበት ቀን', String(s1?.days_absent ?? 0), String(s2?.days_absent ?? 0), String(yr.days_absent ?? 0)],
+    ['Late / excused', `${s1?.days_late ?? 0} / ${s1?.days_excused ?? 0}`, `${s2?.days_late ?? 0} / ${s2?.days_excused ?? 0}`, ''],
+    ['Conduct · ጠባይ', s1?.conduct ?? '—', s2?.conduct ?? '—', ''],
+  ];
   doc.rect(PL, y, CW, 1).fill(COLORS.border);
-  y += 15;
+  y += 4;
+  for (const [label, a, b, c] of summary) {
+    doc.font('Bold').fontSize(9).fillColor(COLORS.primary).text(label, col.subject + 8, y + 3, { width: 220 });
+    doc.font('Body').fillColor(COLORS.primary);
+    doc.text(a, col.s1, y + 3, { width: colW, align: 'center' });
+    doc.text(b, col.s2, y + 3, { width: colW, align: 'center' });
+    doc.font('Bold').text(c, col.year, y + 3, { width: colW, align: 'center' });
+    y += 16;
+  }
+  const notRanked = yr.class_size - yr.ranked_count;
+  doc.font('Body').fontSize(8).fillColor(COLORS.gray)
+     .text(`Class: ${yr.class_size} students${notRanked ? `, ${notRanked} not ranked` : ''}. * incomplete: an assessment without a score, or max scores under 100. Only students complete in every subject are ranked.`, PL, y + 4, { width: CW });
+  y += 30;
 
-  // ── Attendance Summary ────────────────────────────────────────
-  if (y < H - 120) {
-    doc.font('Bold').fontSize(11).fillColor(COLORS.primary)
-       .text('ATTENDANCE SUMMARY', PL, y);
-    y += 15;
-
-    const attItems = [
-      { label: 'Total Days',  value: attendance?.total_days || 0 },
-      { label: 'Present',     value: attendance?.present || 0 },
-      { label: 'Absent',      value: attendance?.absent || 0 },
-      { label: 'Late',        value: attendance?.late || 0 },
-      { label: 'Rate',        value: `${attendance?.rate || 0}%` },
-    ];
-
-    attItems.forEach((item, i) => {
-      const x = PL + (i * (CW / attItems.length));
-      doc.rect(x, y, CW/attItems.length - 4, 40).fill(COLORS.light_gray);
-      doc.font('Bold').fontSize(16).fillColor(COLORS.primary)
-         .text(String(item.value), x, y + 6,
-           { width: CW/attItems.length - 4, align: 'center' });
-      doc.font('Body').fontSize(8).fillColor(COLORS.gray)
-         .text(item.label, x, y + 26,
-           { width: CW/attItems.length - 4, align: 'center' });
-    });
-
-    y += 55;
+  // Homeroom remarks
+  for (const [label, sem] of [['Semester 1', s1], ['Semester 2', s2]]) {
+    if (!sem?.remark) continue;
+    doc.font('Bold').fontSize(9).fillColor(COLORS.primary).text(`Homeroom teacher remark, ${label}:`, PL, y);
+    doc.font('Body').fontSize(9).fillColor(COLORS.primary).text(sem.remark, PL, y + 13, { width: CW });
+    y += 13 + doc.heightOfString(sem.remark, { width: CW }) + 8;
   }
 
-  // ── Remarks & Signature ───────────────────────────────────────
-  if (y < H - 100) {
-    doc.rect(PL, y, CW * 0.55, 60).stroke(COLORS.border);
-    doc.font('Bold').fontSize(9).fillColor(COLORS.primary)
-       .text('Teacher Remarks:', PL + 8, y + 8);
-    doc.font('Body').fontSize(9).fillColor(COLORS.gray)
-       .text('_____________________________________________', PL + 8, y + 24)
-       .text('_____________________________________________', PL + 8, y + 38);
-
-    const sigX = PL + CW * 0.65;
-    doc.font('Body').fontSize(9).fillColor(COLORS.gray)
-       .text('School Director Signature:', sigX, y + 8)
-       .text('___________________________', sigX, y + 35)
-       .text('Date: ____________________', sigX, y + 50);
+  // Promotion (year only)
+  if (yr.promotion && PROMOTION_TEXT[yr.promotion.status]) {
+    const color = yr.promotion.status === 'promoted' ? COLORS.green : yr.promotion.status === 'not_promoted' ? COLORS.red : COLORS.blue;
+    doc.rect(PL, y, CW, 28).fill(COLORS.gold_light);
+    doc.font('Bold').fontSize(12).fillColor(color).text(PROMOTION_TEXT[yr.promotion.status], PL, y + 8, { width: CW, align: 'center' });
+    y += 40;
   }
 
-  // ── Footer ────────────────────────────────────────────────────
+  // Signatures
+  if (y > H - 130) { doc.addPage(); y = 50; }
+  doc.font('Body').fontSize(9).fillColor(COLORS.gray)
+     .text('Homeroom teacher: ______________________', PL, y + 20)
+     .text('Director: ______________________', PL + CW * 0.55, y + 20)
+     .text('Parent: ______________________', PL, y + 45);
+
+  footer(doc, W, H, PL, CW, `Semester 1: ${s1?.final ? 'Final' : 'Provisional'}  ·  Semester 2: ${s2?.final ? 'Final' : 'Provisional'}`);
+  doc.end();
+};
+
+// Footer bar with the final / provisional state
+const footer = (doc, W, H, PL, CW, state) => {
   doc.rect(0, H - 35, W, 35).fill(COLORS.primary);
   doc.font('Body').fontSize(8).fillColor(COLORS.gray)
-     .text('Generated by Äbugida School Management System (ASMS) — Confidential',
-       PL, H - 22, { width: CW, align: 'center' });
-
-  doc.end();
+     .text(`${state}  ·  Äbugida School Management System (ASMS) — Confidential`, PL, H - 22, { width: CW, align: 'center' });
 };
 
 
