@@ -11,9 +11,11 @@
 //   total = sum of the subject scores; average = total / number of subjects
 //   ranked: students complete in every subject that has an assessment (D16), by the average
 //   rounded to 2 decimals, ties 1, 2, 2, 4
-// Per year: yearly subject score = average of the semester scores (semesters where the subject
-//   has assessments); yearly average = (semester 1 average + semester 2 average) / 2, only
-//   when both semesters are ranked; yearly rank by it.
+// Per year: yearly subject score = average of the semester scores the student has (null when
+//   neither semester has one); complete only when the subject is complete in both semesters
+//   (a subject without assessments in a semester is not complete there); yearly average =
+//   (semester 1 average + semester 2 average) / 2, only when both semesters are ranked;
+//   yearly rank by it.
 // Promotion (D17, D26): only for a ranked year and when pass_yearly_average is set; grades in
 //   manual_promotion_grades are "pending" until the admin decides (a decision, from 022,
 //   also overrides the pass mark for other grades).
@@ -186,10 +188,12 @@ const classYear = async (cls, q = db) => {
   const students = ids.map((id) => {
     const a = s1.students.find((s) => s.student_id === id), b = s2.students.find((s) => s.student_id === id);
     const base = a || b;
-    const yearly = {};
+    const yearly = {}, yearlyComplete = {};
     for (const sub of subjects) {
-      const vals = sub.semesters.map((sem) => (sem === 'semester1' ? a : b)?.subjects[sub.subject_id]?.score).filter((v) => v !== null && v !== undefined);
-      yearly[sub.subject_id] = vals.length === sub.semesters.length ? round1(vals.reduce((t, v) => t + v, 0) / vals.length) : null;
+      const per = [a, b].map((row) => row?.subjects[sub.subject_id]);
+      const vals = per.map((p) => p?.score).filter((v) => v !== null && v !== undefined);
+      yearly[sub.subject_id] = vals.length ? round1(vals.reduce((t, v) => t + v, 0) / vals.length) : null;
+      yearlyComplete[sub.subject_id] = per.every((p) => p?.complete === true);
     }
     const bothRanked = !!(a?.rank && b?.rank);
     return {
@@ -198,7 +202,7 @@ const classYear = async (cls, q = db) => {
       student_status: base.student_status, in_class_now: base.in_class_now,
       semester1: a ? { average: a.average, rank: a.rank, complete: a.complete } : null,
       semester2: b ? { average: b.average, rank: b.rank, complete: b.complete } : null,
-      yearly_subjects: yearly,
+      yearly_subjects: yearly, yearly_subjects_complete: yearlyComplete,
       yearly_average: bothRanked ? fromCents(Math.round((cents(a.average) + cents(b.average)) / 2), 2) : null,
       yearly_rank: null,
       days_absent: (a?.days_absent ?? 0) + (b?.days_absent ?? 0),
@@ -285,7 +289,8 @@ const studentResults = async (studentId, academicYearId, q = db) => {
     academic_year: yearInfo(cls),
     semesters: { semester1: semester('semester1'), semester2: semester('semester2') },
     year: {
-      subjects: y.subjects.map((s) => ({ subject_id: s.subject_id, name: s.name, name_am: s.name_am, score: yrow?.yearly_subjects[s.subject_id] ?? null })),
+      subjects: y.subjects.map((s) => ({ subject_id: s.subject_id, name: s.name, name_am: s.name_am, score: yrow?.yearly_subjects[s.subject_id] ?? null,
+        complete: yrow?.yearly_subjects_complete[s.subject_id] ?? false })),
       average: yrow?.yearly_average ?? null, rank: yrow?.yearly_rank ?? null,
       class_size: y.class_size, ranked_count: y.ranked_count, days_absent: yrow?.days_absent ?? 0,
       promotion: yrow?.promotion ?? null,
