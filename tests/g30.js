@@ -57,6 +57,9 @@ const tag = Date.now().toString(36);
     ok(r?.students?.length === 2 && roster[S.a]?.score !== null && roster[S.b]?.score === null && roster[S.a].in_class === true,
       'roster: both students, Bethel without a score', JSON.stringify(r?.students?.map((x) => [x.first_name, x.score])));
 
+    r = (await call(TB, 'GET', `/grades/exams?class_id=${cls}&semester=1`)).body?.data;
+    ok(r?.length === 1 && 'subject_name_am' in r[0] && Number(r[0].grades_entered) === 2, 'exam list: teacher B sees it, with subject_name_am and 2 scores');
+
     console.log('== Refused');
     ok((await save(A, [{ student_id: S.a, score: 70, clear: true }])).status === 400, 'clear and a score in one row -> 400');
     ok((await save(TA, [{ student_id: S.a, clear: true }])).status === 403, 'teacher A (not assigned) -> 403');

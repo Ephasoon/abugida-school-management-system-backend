@@ -62,14 +62,14 @@ const getExams = async (req, res) => {
     const { rows } = await db.query(
       `SELECT e.*,
          c.name AS class_name, c.grade_level,
-         s.name AS subject_name, s.code AS subject_code,
+         s.name AS subject_name, s.name_am AS subject_name_am, s.code AS subject_code,
          COUNT(g.id) AS grades_entered
        FROM exams e
        LEFT JOIN classes  c ON c.id=e.class_id
        LEFT JOIN subjects s ON s.id=e.subject_id
        LEFT JOIN grades   g ON g.exam_id=e.id
        ${where}
-       GROUP BY e.id, c.name, c.grade_level, s.name, s.code
+       GROUP BY e.id, c.name, c.grade_level, s.name, s.name_am, s.code
        ORDER BY e.created_at DESC`,
       params
     );
