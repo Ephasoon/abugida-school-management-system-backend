@@ -278,13 +278,23 @@ const updateAttendance = async (req, res) => {
 
 // ── GET /api/attendance/student/:studentId ────────────────────
 // A student's attendance history with a summary.
-// Query: month (1-12) with year, or year alone; limit (pagination)
+// Query: from and to ('YYYY-MM-DD', at most MAX_REPORT_DAYS days: an Ethiopian month spans two
+// Gregorian ones, M6), or month (1-12) with year, or year alone; limit (pagination)
 const getStudentAttendance = async (req, res) => {
   try {
     const { studentId }   = req.params;
-    const { month, year } = req.query;
+    const { from, to } = req.query;
+    const { month, year } = from !== undefined || to !== undefined ? {} : req.query;
     const pg = parsePagination(req.query);
     if (pg.error) return sendError(res, pg.error, 400);
+    if (from !== undefined || to !== undefined) {
+      if (!isIsoDate(from)) return sendError(res, 'from must be a real date in YYYY-MM-DD format.', 400, { field: 'from' });
+      if (!isIsoDate(to))   return sendError(res, 'to must be a real date in YYYY-MM-DD format.', 400, { field: 'to' });
+      if (to < from) return sendError(res, 'to must not be before from.', 400, { field: 'to' });
+      if (addDays(from, MAX_REPORT_DAYS - 1) < to) {
+        return sendError(res, `The range covers at most ${MAX_REPORT_DAYS} days.`, 400, { field: 'to' });
+      }
+    }
 
     if (year !== undefined && !/^\d{4}$/.test(String(year))) return sendError(res, 'year must be a 4-digit year.', 400, { field: 'year' });
     if (month !== undefined) {
@@ -296,7 +306,10 @@ const getStudentAttendance = async (req, res) => {
     let dateFilter = '';
     const params   = [studentId];
 
-    if (month && year) {
+    if (from !== undefined) {
+      dateFilter = 'AND a.date BETWEEN $2 AND $3';
+      params.push(from, to);
+    } else if (month && year) {
       dateFilter = `AND date_trunc('month', a.date) = $2`;
       params.push(`${year}-${String(month).padStart(2,'0')}-01`);
     } else if (year) {
@@ -315,7 +328,7 @@ const getStudentAttendance = async (req, res) => {
          ${dateFilter}
        ORDER BY a.date DESC
        LIMIT $${params.length + 1}`,
-      [...params, pg.limit]
+      [...params, from !== undefined ? MAX_REPORT_DAYS : pg.limit]
     );
 
     // Calculate overall stats
@@ -334,6 +347,7 @@ const getStudentAttendance = async (req, res) => {
 
     return sendSuccess(res, {
       student_id: studentId,
+      ...(from !== undefined ? { from, to } : {}),
       stats:      stats[0],
       records:    rows,
     }, 'Student attendance retrieved.');
