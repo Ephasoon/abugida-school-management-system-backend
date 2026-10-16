@@ -109,6 +109,7 @@ const getUpcoming = async (req, res) => {
          c.name        AS class_name,
          c.grade_level, c.section,
          s.name        AS subject_name,
+         s.name_am     AS subject_name_am,
          s.code        AS subject_code,
          -- Days until exam
          (e.exam_date - CURRENT_DATE) AS days_until
@@ -195,14 +196,14 @@ const getClassExams = async (req, res) => {
       `SELECT
          e.id, e.name, e.exam_type, e.term, e.semester,
          e.exam_date, e.max_score, e.created_at,
-         s.name AS subject_name, s.code AS subject_code,
+         s.name AS subject_name, s.name_am AS subject_name_am, s.code AS subject_code,
          COUNT(g.id) AS grades_entered,
          (e.exam_date - CURRENT_DATE) AS days_until
        FROM exams e
        LEFT JOIN subjects s ON s.id  = e.subject_id
        LEFT JOIN grades   g ON g.exam_id = e.id
        WHERE e.class_id = $1 ${termFilter}
-       GROUP BY e.id, s.name, s.code
+       GROUP BY e.id, s.name, s.name_am, s.code
        ORDER BY e.exam_date ASC NULLS LAST`,
       params
     );

@@ -60,14 +60,18 @@ const getParentProfile = async (req, res) => {
 
 
 // ── GET /api/parent/children ─────────────────────────────────
+// Every linked child, archived and graduated ones too (status), with the Amharic names, the
+// class and whether its year is the current one (M6).
 const getChildren = async (req, res) => {
   try {
     const { rows } = await db.query(
       `SELECT s.id, s.student_number, s.first_name, s.last_name,
-              s.fathers_name, s.gender, s.date_of_birth, s.photo_url,
+              s.fathers_name, s.first_name_am, s.fathers_name_am, s.last_name_am,
+              s.gender, s.date_of_birth, s.photo_url,
               s.status, s.enrollment_date,
-              c.name AS class_name, c.grade_level, c.section,
-              ay.name AS academic_year, sp.relationship
+              c.id AS class_id, c.name AS class_name, c.grade_level, c.section,
+              ay.id AS academic_year_id, ay.name AS academic_year, ay.end_date AS academic_year_end,
+              COALESCE(ay.is_current, false) AS year_is_current, sp.relationship
        FROM students s
        JOIN student_parents sp ON sp.student_id = s.id
        JOIN parents p ON p.id = sp.parent_id
@@ -315,7 +319,7 @@ const getChildTimetable = async (req, res) => {
 
     const { rows } = await db.query(
       `SELECT t.day, t.period, t.start_time, t.end_time, t.room,
-              s.name AS subject, te.first_name||' '||te.last_name AS teacher
+              s.name AS subject, s.name_am AS subject_name_am, te.first_name||' '||te.last_name AS teacher
        FROM timetable t
        LEFT JOIN subjects s  ON s.id=t.subject_id
        LEFT JOIN teachers te ON te.id=t.teacher_id
