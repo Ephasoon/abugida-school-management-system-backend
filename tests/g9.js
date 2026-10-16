@@ -116,7 +116,12 @@ const tag = String(Date.now()).slice(-6);
     // Same date and weekday the dashboard uses (Postgres CURRENT_DATE); Sunday is not a school day
     const { d: pgToday, dow: todayName } = (await pool.query("SELECT to_char(CURRENT_DATE,'YYYY-MM-DD') d, trim(to_char(CURRENT_DATE, 'Day')) dow")).rows[0];
     const schoolDay = todayName !== 'Sunday';
-    if (schoolDay) await call(A, 'POST', '/timetable', { class_id: cls, subject_id: G.math, teacher_id: G.tA.tid, day: todayName, period: 8, start_time: '15:00', end_time: '16:00', room: 'R9' });
+    // Today's slots: 9E (this year) at period 7, 9A (2024/2025) at period 8 (kept by earlier runs)
+    if (schoolDay) {
+      await call(A, 'POST', '/timetable', { class_id: G.c9A, subject_id: G.math, teacher_id: G.tA.tid, day: todayName, period: 8, start_time: '15:00', end_time: '16:00', room: 'R9' });
+      const slot = await call(A, 'POST', '/timetable', { class_id: cls, subject_id: G.math, teacher_id: G.tA.tid, day: todayName, period: 7, start_time: '14:00', end_time: '15:00', room: 'R9E' });
+      ok(slot.status === 201, `9E slot today (${todayName}, period 7) created`, String(slot.status));
+    }
     const marked = await call(TA, 'POST', '/attendance', { class_id: cls, date: pgToday, records: [{ student_id: sa, status: 'absent' }] });
     ok(marked.status === 201, "teacher A marks today's attendance in own class of the current year", String(marked.status));
     const exam = async (name, date) => (await call(A, 'POST', '/grades/exams', { class_id: cls, subject_id: G.math, name: `${name} ${tag}`, exam_type: 'quiz', max_score: 10, exam_date: date })).body.data?.id;
@@ -125,6 +130,15 @@ const tag = String(Date.now()).slice(-6);
     const held = await exam('G9 held', pgToday);
     await call(A, 'POST', '/grades', { exam_id: held, grades: [{ student_id: sa, score: 7 }] });
     ok(!!soon && !!held, 'exams created in the class (one in 3 days, one today)');
+    // 9A of 2024/2025 (teacher A, Mathematics): an undated exam with a score missing, and one
+    // dated in 3 days (raw insert: the API refuses dates outside the class's year)
+    const pastHeld = (await call(A, 'POST', '/grades/exams', { class_id: G.c9A, subject_id: G.math, name: `G9 past ${tag}`, exam_type: 'quiz', max_score: 1, semester: 1 })).body.data?.id;
+    await call(A, 'POST', '/grades', { exam_id: pastHeld, grades: [{ student_id: G.s1.sid, score: 1 }] });
+    const pastSoon = (await pool.query(
+      `INSERT INTO exams (class_id, subject_id, academic_year_id, name, exam_type, max_score, exam_date, semester)
+       SELECT id, $2, academic_year_id, $3, 'quiz', 1, CURRENT_DATE + 3, 'semester1' FROM classes WHERE id = $1 RETURNING id`,
+      [G.c9A, G.math, `G9 past soon ${tag}`])).rows[0].id;
+    ok(!!pastHeld && !!pastSoon, '9A (2024/2025) exams: one undated and part-graded, one in 3 days');
 
     const d = await call(TA, 'GET', '/dashboard/teacher');
     ok(d.status === 200, 'teacher A gets the dashboard');
@@ -139,10 +153,13 @@ const tag = String(Date.now()).slice(-6);
     const at = D.attendance_today.find((x) => x.class_id === cls);
     ok(!!at && at.total === act && at.marked === 1 && at.absent === 1, "today's attendance for 9E (marked/absent counted)", JSON.stringify(at));
     ok(D.upcoming_exams.some(e => e.id === soon && e.days_until === 3) && D.upcoming_exams.every(e => D.classes.some((c) => c.class_name === e.class_name)), 'upcoming exams: own classes only');
+    ok(!D.upcoming_exams.some((e) => e.id === pastSoon || e.class_name === 'Grade 9 Section A'), "upcoming exams: none from 9A of 2024/2025");
+    ok(!D.grading_pending.some((g) => g.id === pastHeld || g.class_name === 'Grade 9 Section A'), "grading to do: none from 9A of 2024/2025", D.grading_pending.map((g) => g.class_name).join());
     const pending = D.grading_pending.find((g) => g.id === held);
     ok(!!pending && pending.graded === 1 && pending.students === 2 && !D.grading_pending.some((g) => g.id === soon)
       && D.grading_pending.every(g => g.subject_name === 'Mathematics' && g.graded < g.students), 'grading pending: own class+subject, held and incomplete only');
-    if (schoolDay) ok(D.timetable_today.some(s => s.period === 8 && s.room === 'R9'), `today's timetable slot shown (${todayName})`);
+    if (schoolDay) ok(D.timetable_today.some(s => s.period === 7 && s.room === 'R9E' && s.class_name === 'Grade 9 Section E') && !D.timetable_today.some((s) => s.class_name === 'Grade 9 Section A'),
+      `today's timetable (${todayName}): the 9E slot, not 9A's of 2024/2025`, D.timetable_today.map((s) => `${s.class_name} p${s.period}`).join());
     else ok(D.timetable_today.length === 0, "Sunday: no timetable slots today");
     const keys = []; const walk = (o) => { if (o && typeof o === 'object') for (const [k, v] of Object.entries(o)) { keys.push(k); walk(v); } }; walk(D);
     ok(!keys.some(k => /amount|balance|payment|fee|finance|due|paid/i.test(k)), 'no finance fields in the teacher dashboard', [...new Set(keys)].join(','));
