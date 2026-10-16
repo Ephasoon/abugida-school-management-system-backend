@@ -93,6 +93,8 @@ const tag = Date.now().toString(36);
       r = await call(P1, 'GET', p);
       ok(r.status === 403, `other family: ${p.replace(liya, ':liya').replace(G.c9B, ':9B')} -> 403`, String(r.status));
     }
+    const ry = (await call(P1, 'GET', `/results/student/${kidist}`)).body?.data?.years ?? [];
+    ok(ry.length >= 1 && ry[0].id === year.id && ry[0].is_current === true && !!ry[0].end_date && !!ry[0].name, 'results: the years with results for the picker (current year first)', JSON.stringify(ry));
     r = await call(P2, 'GET', `/results/student/${kidist}`);
     ok(r.status === 403, "and the other way round: parent 2 -> Kidist's results 403");
     for (const p of ['/parent/children', '/parent/fees', '/parent/profile', '/exam-schedule/upcoming?days=365', `/parent/child/${kaleb}/summary`, `/results/student/${kaleb}`]) {

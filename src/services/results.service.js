@@ -281,6 +281,14 @@ const studentResults = async (studentId, academicYearId, q = db) => {
     };
   };
   const yrow = y.students.find((s) => s.student_id === student.id);
+  // Years with results for this student (their class now, or scores), newest first: the
+  // parent portal's year picker (M6), as parents can't list academic years
+  const { rows: years } = await q.query(
+    `SELECT y.id, y.name, y.end_date, y.is_current FROM academic_years y
+     WHERE y.id = $2 OR EXISTS (SELECT 1 FROM grades g JOIN exams e ON e.id = g.exam_id JOIN classes c ON c.id = e.class_id
+                                WHERE g.student_id = $1 AND c.academic_year_id = y.id)
+        OR y.id = (SELECT c.academic_year_id FROM classes c WHERE c.id = $3)
+     ORDER BY y.start_date DESC`, [student.id, cls.academic_year_id, student.class_id]);
   return {
     student: { id: student.id, student_number: student.student_number, first_name: student.first_name, fathers_name: student.fathers_name,
       last_name: student.last_name, first_name_am: student.first_name_am, fathers_name_am: student.fathers_name_am,
@@ -296,6 +304,7 @@ const studentResults = async (studentId, academicYearId, q = db) => {
       promotion: yrow?.promotion ?? null,
     },
     settings: { pass_yearly_average: y.settings.pass_yearly_average },
+    years,
   };
 };
 
