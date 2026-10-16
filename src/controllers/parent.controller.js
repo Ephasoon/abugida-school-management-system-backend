@@ -319,7 +319,7 @@ const getChildTimetable = async (req, res) => {
 
     const { rows } = await db.query(
       `SELECT t.day, t.period, t.start_time, t.end_time, t.room,
-              s.name AS subject, te.first_name||' '||te.last_name AS teacher
+              s.name AS subject, s.name_am AS subject_name_am, te.first_name||' '||te.last_name AS teacher
        FROM timetable t
        LEFT JOIN subjects s  ON s.id=t.subject_id
        LEFT JOIN teachers te ON te.id=t.teacher_id

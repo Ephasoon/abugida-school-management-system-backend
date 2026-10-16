@@ -114,6 +114,7 @@ const tag = Date.now().toString(36);
     const tt = await call(P1, 'GET', `/parent/child/${kidist}/timetable`);
     const slots = tt.status === 200 ? Object.values(tt.body.data.by_day).flat() : [];
     ok(slots.every((s) => !('phone' in s) && !('email' in s) && !('teacher_phone' in s) && !('teacher_email' in s)), `timetable: teacher names only (${slots.length} slot(s))`);
+    ok(slots.every((s) => 'subject_name_am' in s && 'teacher' in s), 'timetable: the Amharic subject name and the teacher name');
   } finally {
     await call(A, 'PUT', `/teachers/${G.tA.tid}`, { phone: tA.phone ?? '' });
     await pool.query('DELETE FROM attendance WHERE student_id = $1', [kidist]);
