@@ -1,6 +1,7 @@
 // Phase 2 M5b: clearing a saved score. POST /grades with { student_id, clear: true } removes it
 // (the subject becomes incomplete), is audited with the old score, is refused in a locked
 // semester, and a row cannot clear and set at once. Teachers: own class + subject only.
+// Also: `locked` on GET /grades/exams/:id, the year's dates on GET /classes.
 // Scratch DB backend on :3100.
 const pool = require('./tdb');
 const { createFreeYear } = require('./years');
@@ -60,8 +61,14 @@ const tag = Date.now().toString(36);
     r = await save(A, [{ student_id: S.a, clear: true }]);
     ok(r.status === 409 && /locked/.test(r.body?.message), 'clearing in a locked semester -> 409', r.body?.message);
     ok((await scores())[S.a] === 75, 'the score is still there');
+    ok((await call(TB, 'GET', `/grades/exams/${exam}`)).body?.data?.exam?.locked === true, 'GET /grades/exams/:id says locked');
     await call(A, 'DELETE', `/results/locks/${locks.pop()}`);
     ok((await save(A, [{ student_id: S.a, clear: true }])).status === 200, 'after unlocking: clearing works');
+    ok((await call(TB, 'GET', `/grades/exams/${exam}`)).body?.data?.exam?.locked === false, 'and it is no longer locked');
+
+    console.log('== Year dates on GET /classes (for the exam form)');
+    const c = (await call(TB, 'GET', `/classes?academic_year_id=${yr.id}`)).body?.data?.find((x) => x.id === cls);
+    ok(c?.year_start === yr.start_date && c.year_end === yr.end_date && c.semester2_start === yr.semester2_start, 'teacher reads the year dates and semester 2 start', JSON.stringify(c && [c.year_start, c.semester2_start]));
 
     for (const id of Object.values(S)) await call(A, 'DELETE', `/students/${id}`);
   } finally {

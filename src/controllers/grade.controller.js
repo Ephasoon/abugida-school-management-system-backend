@@ -12,7 +12,7 @@ const RATE   = rateSql();   // attendance rate (M4): late attended, excused left
 
 const { semesterFilter } = require('../utils/semesters');
 const { studentResults, ResultsError } = require('../services/results.service');
-const { LockedError, assertSemesterUnlocked } = require('../services/locks.service');
+const { LockedError, assertSemesterUnlocked, findLock } = require('../services/locks.service');
 const { inTransaction } = require('../utils/transaction');
 const { audit } = require('../utils/audit');
 
@@ -175,7 +175,8 @@ const enterGrades = async (req, res) => {
 const getExamGrades = async (req, res) => {
   try {
     const { rows: ex } = await db.query(
-      `SELECT e.*, c.name AS class_name, c.grade_level, c.section, s.name AS subject_name, s.name_am AS subject_name_am
+      `SELECT e.*, c.name AS class_name, c.grade_level, c.section, c.academic_year_id AS class_year_id,
+              s.name AS subject_name, s.name_am AS subject_name_am
        FROM exams e JOIN classes c ON c.id = e.class_id JOIN subjects s ON s.id = e.subject_id WHERE e.id = $1`, [req.params.examId]);
     if (!ex[0]) return sendError(res, 'Exam not found.', 404);
     if (req.user.role === 'teacher' && !(await getAssignedTeacherId(req.user.id, ex[0].class_id, ex[0].subject_id))) {
@@ -186,7 +187,9 @@ const getExamGrades = async (req, res) => {
               s.student_number, s.first_name, s.fathers_name, s.last_name, s.first_name_am, s.fathers_name_am, s.last_name_am
        FROM grades g JOIN students s ON s.id = g.student_id WHERE g.exam_id = $1
        ORDER BY s.first_name, s.last_name`, [ex[0].id]);
-    const { grade_letter: _gl, ...exam } = ex[0];
+    const { grade_letter: _gl, class_year_id, ...exam } = ex[0];
+    const lock = await findLock(db, { yearId: class_year_id, semester: exam.semester, classId: exam.class_id });
+    exam.locked = !!lock;   // M5b: score entry is read-only while the semester is locked (D29)
     return sendSuccess(res, { exam, grades }, `${grades.length} score(s) entered.`);
   } catch (err) {
     return sendServerError(res, err, 'Server error.');

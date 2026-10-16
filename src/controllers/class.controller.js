@@ -21,7 +21,7 @@ const className = (grade, section) => `Grade ${grade} Section ${section}`;
 
 const CLASS_COLUMNS = `
   c.id, c.name, c.grade_level, c.section, c.capacity, c.academic_year_id, c.homeroom_teacher_id,
-  ay.name AS academic_year,
+  ay.name AS academic_year, ay.start_date AS year_start, ay.end_date AS year_end, ay.semester2_start,
   t.first_name AS homeroom_first_name, t.last_name AS homeroom_last_name,
   t.first_name_am AS homeroom_first_name_am, t.last_name_am AS homeroom_last_name_am,
   (SELECT COUNT(*)::int FROM students s WHERE s.class_id = c.id AND s.status = 'active') AS student_count`;
