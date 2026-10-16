@@ -58,7 +58,7 @@ cmd.exe is usually WSL's. Set `GIT_BASH` if Git is installed somewhere unusual.
 | g6 | Phase 0 follow-ups (browser): parent portal on `api.js`, downloads, finance UI hidden from teachers, attendance card |
 | g7 | Phase 1 Group B: role × endpoint matrix, list scoping |
 | g8 | Phase 1 Group C: school-created accounts |
-| g9 | Phase 1 Group D: finance outstanding, parent fees, teacher dashboard |
+| g9 | Phase 1 Group D: finance outstanding, parent fees, teacher dashboard (in its own class 9E of a year containing today, made current while it runs; 2024/2025 put back and the assignment, timetable slot, students and exams removed afterwards, `todayyear.js`) |
 | g10 | Phase 1 Addition 1: one rule for creating exams |
 | g11 | Phase 1 Addition 2: deactivate and reactivate a principal |
 | g12 | Phase 1 Decisions 1, 2, 4: existing-parent login, parent (de)activation, outstanding |
