@@ -151,7 +151,7 @@ const generateReportCard = async (data, res) => {
     doc.fillColor(COLORS.primary);
     doc.text(cell(s1, sub.subject_id), col.s1, y + 4, { width: colW, align: 'center' });
     doc.text(cell(s2, sub.subject_id), col.s2, y + 4, { width: colW, align: 'center' });
-    doc.font('Bold').text(one(sub.score), col.year, y + 4, { width: colW, align: 'center' });
+    doc.font('Bold').text(sub.score === null ? '—' : `${one(sub.score)}${sub.complete ? '' : ' *'}`, col.year, y + 4, { width: colW, align: 'center' });
     y += 18;
   });
   if (!yr.subjects.length) {
@@ -161,7 +161,7 @@ const generateReportCard = async (data, res) => {
 
   // Totals, averages, ranks
   const summary = [
-    ['Total', s1 ? one(s1.total) : '—', s2 ? one(s2.total) : '—', ''],
+    ['Total', one(s1?.total), one(s2?.total), '—'],
     ['Average', two(s1?.average), two(s2?.average), two(yr.average)],
     ['Rank', rankText(s1?.rank, s1?.ranked_count), rankText(s2?.rank, s2?.ranked_count), rankText(yr.rank, yr.ranked_count)],
     ['Days absent · የቀሩበት ቀን', String(s1?.days_absent ?? 0), String(s2?.days_absent ?? 0), String(yr.days_absent ?? 0)],
@@ -179,9 +179,9 @@ const generateReportCard = async (data, res) => {
     y += 16;
   }
   const notRanked = yr.class_size - yr.ranked_count;
-  doc.font('Body').fontSize(8).fillColor(COLORS.gray)
-     .text(`Class: ${yr.class_size} students${notRanked ? `, ${notRanked} not ranked` : ''}. * incomplete: an assessment without a score, or max scores under 100. Only students complete in every subject are ranked.`, PL, y + 4, { width: CW });
-  y += 30;
+  const legend = `Class: ${yr.class_size} students${notRanked ? `, ${notRanked} not ranked` : ''}. * incomplete: an assessment without a score, or max scores under 100; a yearly score is complete only when both semesters are. Only students complete in every subject are ranked.`;
+  doc.font('Body').fontSize(8).fillColor(COLORS.gray).text(legend, PL, y + 4, { width: CW });
+  y += 4 + doc.heightOfString(legend, { width: CW }) + 12;
 
   // Homeroom remarks
   for (const [label, sem] of [['Semester 1', s1], ['Semester 2', s2]]) {

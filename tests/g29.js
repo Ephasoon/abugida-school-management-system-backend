@@ -76,6 +76,29 @@ const tag = Date.now().toString(36);
     ok(/Mathematics .*50\.0 .*—/.test(p) && /English .*— /.test(p), 'scores entered so far, dashes where missing');
     ok(/Rank not ranked not ranked not ranked/.test(p) && !p.includes('Promoted'), 'not ranked, no promotion shown');
 
+    console.log('== Yearly score incomplete unless both semesters are complete');
+    // Own class: Mathematics has one 20-point test in semester 1 (scored) and nothing in
+    // semester 2; English has a semester 1 exam without a score
+    const cls2 = (await call(A, 'POST', '/classes', { academic_year_id: yr.id, grade_level: 8, section: 'C' })).body.data.id;
+    const semi = (await call(A, 'POST', '/students', { first_name: 'Semi', last_name: `G29${tag}`, gender: 'male', class_id: cls2 })).body.data.id;
+    const q1 = (await call(A, 'POST', '/grades/exams', { class_id: cls2, subject_id: G.math, name: `G29 test ${tag}`, exam_type: 'quiz', max_score: 20, semester: 1 })).body.data.id;
+    await call(A, 'POST', '/grades/exams', { class_id: cls2, subject_id: G.eng, name: `G29 ${tag}`, exam_type: 'final', max_score: 100, semester: 1 });
+    await enter(q1, [[semi, 18]]);
+    const sr = (await call(A, 'GET', `/results/student/${semi}?academic_year_id=${yr.id}`)).body?.data;
+    const ys = (id) => sr?.year.subjects.find((x) => x.subject_id === id);
+    ok(ys(G.math)?.score === 18 && ys(G.math)?.complete === false, 'API: Mathematics yearly 18, not complete (semester 1 incomplete, no semester 2)', JSON.stringify(ys(G.math)));
+    ok(ys(G.eng)?.score === null && ys(G.eng)?.complete === false, 'API: English yearly null (no scores)', JSON.stringify(ys(G.eng)));
+    const cy = (await call(A, 'GET', `/results/class/${cls2}?semester=year`)).body?.data?.students.find((x) => x.student_id === semi);
+    ok(cy?.yearly_subjects[G.math] === 18 && cy?.yearly_subjects_complete[G.math] === false, 'API: class year sheet marks it incomplete too');
+    const yh = (await call(A, 'GET', `/results/student/${hana}?academic_year_id=${yr.id}`)).body?.data?.year.subjects.find((x) => x.subject_id === G.math);
+    ok(yh?.score === 86 && yh?.complete === true, 'API: complete in both semesters -> yearly complete (Hana 86)');
+    const ts = await pdfText((await pdf(A, `/pdf/report-card/${semi}?academic_year_id=${yr.id}`)).buf);
+    ok(/Mathematics[^\d—]* 18\.0 \* — 18\.0 \*/.test(ts), 'PDF: Mathematics "18.0 *", "—", year "18.0 *"', ts.slice(ts.indexOf('Mathematics'), ts.indexOf('Mathematics') + 40));
+    ok(/English[^\d—]* — — —/.test(ts), 'PDF: English without scores: "—" in every column including the year');
+    ok(/Total 18\.0 — —/.test(ts), 'PDF: Total "—" for semester 2 and the year', ts.slice(ts.indexOf('Total'), ts.indexOf('Total') + 30));
+    ok(/Mathematics .*86\.0 /.test(t) && !/Mathematics 92\.0 80\.0 86\.0 \*/.test(t) && /Total 180\.0 164\.0 —/.test(t), 'PDF: Hana\'s complete yearly score has no "*"; Total year "—"');
+    await call(A, 'DELETE', `/students/${semi}`);
+
     console.log('== No results; old query; bad input; scoping');
     const lone = (await call(A, 'POST', '/students', { first_name: 'Lone', last_name: `G29${tag}`, gender: 'male' })).body.data.id;
     const n = await pdf(A, `/pdf/report-card/${lone}`);
