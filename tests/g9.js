@@ -1,8 +1,10 @@
 // Phase 1 Group D: finance outstanding, parent family fees, teacher dashboard.
+// The dashboard part runs in a year containing today (tests/todayyear.js), 2024/2025 put back after.
 // Scratch DB backend on :3100 (+ static frontend on :5500 for one browser check). Run via guard.sh.
 const pool = require('./tdb');
 const G = require('./g3.json');
 const { createFreeYear } = require('./years');
+const { FIXTURE_YEAR, useTodayYear, restoreFixtureYear } = require('./todayyear');
 const { launch, Browser } = require('./cdp');
 const API = 'http://localhost:3100/api';
 let pass = 0, fail = 0;
@@ -84,30 +86,80 @@ const tag = String(Date.now()).slice(-6);
   for (const [who, tok] of [['admin', A], ['principal', P], ['teacher', TA]]) ok((await call(tok, 'GET', '/parent/fees')).status === 403, `${who}: /parent/fees -> 403`);
 
   // ── 3. Teacher dashboard ──
+  // The dashboard lists this year's classes, and attendance can only be marked inside the
+  // class's year (M4), but the fixtures' year 2024/2025 is in the past: a year containing
+  // today is made current while this runs and 2024/2025 is put back (tests/todayyear.js).
+  // g9's own class there, reused by every run: 9E with teacher A for Mathematics; earlier
+  // runs' students, attendance and exams are cleared first, and again at the end with the
+  // assignment and timetable slot, so other suites see teacher A in 9A only.
   console.log('== GET /dashboard/teacher');
-  // Same weekday the dashboard uses (Postgres CURRENT_DATE); Sunday is not a school day
-  const todayName = (await pool.query("SELECT trim(to_char(CURRENT_DATE, 'Day')) d")).rows[0].d;
-  const schoolDay = todayName !== 'Sunday';
-  if (schoolDay) await call(A, 'POST', '/timetable', { class_id: G.c9A, subject_id: G.math, teacher_id: G.tA.tid, day: todayName, period: 8, start_time: '15:00', end_time: '16:00', room: 'R9' });
-  await call(TA, 'POST', '/attendance', { class_id: G.c9A, date: (await pool.query("SELECT to_char(CURRENT_DATE,'YYYY-MM-DD') d")).rows[0].d, records: [{ student_id: G.s1.sid, status: 'absent' }] });
-  const d = await call(TA, 'GET', '/dashboard/teacher');
-  ok(d.status === 200, 'teacher A gets the dashboard');
-  const D = d.body.data;
-  ok(D.teacher.id === G.tA.tid, 'teacher identified');
-  ok(D.classes.length === 1 && D.classes[0].class_id === G.c9A && D.classes[0].subjects.map(s => s.subject).join() === 'Mathematics', 'classes: 9A / Mathematics only');
-  const act = (await pool.query("SELECT COUNT(*)::int n FROM students WHERE class_id=$1 AND status='active'", [G.c9A])).rows[0].n;
-  ok(D.classes[0].student_count === act, 'student count matches active 9A students', `${D.classes[0].student_count}`);
-  const at = D.attendance_today[0];
-  ok(D.attendance_today.length === 1 && at.total === act && at.marked >= 1 && at.absent >= 1, "today's attendance for 9A (marked/absent counted)", JSON.stringify(at));
-  ok(D.upcoming_exams.some(e => e.name === 'G7 9A quiz') && D.upcoming_exams.every(e => e.class_name === 'Grade 9 Section A'), 'upcoming exams: own class only');
-  ok(D.grading_pending.length > 0 && D.grading_pending.every(g => g.class_name === 'Grade 9 Section A' && g.subject_name === 'Mathematics' && g.graded < g.students), 'grading pending: own class+subject, incomplete only');
-  if (schoolDay) ok(D.timetable_today.some(s => s.period === 8 && s.room === 'R9'), `today's timetable slot shown (${todayName})`);
-  else ok(D.timetable_today.length === 0, "Sunday: no timetable slots today");
-  const keys = []; const walk = (o) => { if (o && typeof o === 'object') for (const [k, v] of Object.entries(o)) { keys.push(k); walk(v); } }; walk(D);
-  ok(!keys.some(k => /amount|balance|payment|fee|finance|due|paid/i.test(k)), 'no finance fields in the teacher dashboard', [...new Set(keys)].join(','));
-  const db2 = (await call(TB, 'GET', '/dashboard/teacher')).body.data;
-  ok(db2.classes.length === 0 && db2.attendance_today.length === 0 && db2.upcoming_exams.length === 0 && db2.grading_pending.length === 0, 'teacher B (no assignments): everything empty');
-  for (const [who, tok] of [['admin', A], ['principal', P], ['parent', PA]]) ok((await call(tok, 'GET', '/dashboard/teacher')).status === 403, `${who}: /dashboard/teacher -> 403`);
+  let cls = null;
+  const clear = async () => {
+    await pool.query("DELETE FROM attendance WHERE student_id IN (SELECT id FROM students WHERE last_name LIKE 'G9Dash%')");
+    await pool.query("UPDATE students SET class_id = NULL WHERE last_name LIKE 'G9Dash%'");
+    if (!cls) return;
+    const old = (await pool.query('SELECT id FROM exams WHERE class_id = $1', [cls])).rows.map((r) => r.id);
+    await pool.query('DELETE FROM grades WHERE exam_id = ANY($1::uuid[])', [old]);
+    await pool.query('DELETE FROM exams WHERE id = ANY($1::uuid[])', [old]);
+  };
+  try {
+    const { year, today } = await useTodayYear(call, A);
+    console.log(`  (current year for this run: ${year.name}, today ${today})`);
+    const list = (await call(A, 'GET', `/classes?academic_year_id=${year.id}`)).body.data;
+    cls = list.find((c) => c.grade_level === 9 && c.section === 'E')?.id
+      ?? (await call(A, 'POST', '/classes', { academic_year_id: year.id, grade_level: 9, section: 'E' })).body.data.id;
+    await clear();
+    await call(A, 'POST', `/teachers/${G.tA.tid}/classes`, { class_id: cls, subject_id: G.math });
+    const stu = async (first) => (await call(A, 'POST', '/students', { first_name: first, last_name: `G9Dash${tag}`, gender: 'female', class_id: cls })).body.data.id;
+    const sa = await stu('Abeba'), sb = await stu('Bethel');
+
+    // Same date and weekday the dashboard uses (Postgres CURRENT_DATE); Sunday is not a school day
+    const { d: pgToday, dow: todayName } = (await pool.query("SELECT to_char(CURRENT_DATE,'YYYY-MM-DD') d, trim(to_char(CURRENT_DATE, 'Day')) dow")).rows[0];
+    const schoolDay = todayName !== 'Sunday';
+    if (schoolDay) await call(A, 'POST', '/timetable', { class_id: cls, subject_id: G.math, teacher_id: G.tA.tid, day: todayName, period: 8, start_time: '15:00', end_time: '16:00', room: 'R9' });
+    const marked = await call(TA, 'POST', '/attendance', { class_id: cls, date: pgToday, records: [{ student_id: sa, status: 'absent' }] });
+    ok(marked.status === 201, "teacher A marks today's attendance in own class of the current year", String(marked.status));
+    const exam = async (name, date) => (await call(A, 'POST', '/grades/exams', { class_id: cls, subject_id: G.math, name: `${name} ${tag}`, exam_type: 'quiz', max_score: 10, exam_date: date })).body.data?.id;
+    const inDays = (n) => { const x = new Date(`${pgToday}T00:00:00Z`); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+    const soon = await exam('G9 upcoming', inDays(3));
+    const held = await exam('G9 held', pgToday);
+    await call(A, 'POST', '/grades', { exam_id: held, grades: [{ student_id: sa, score: 7 }] });
+    ok(!!soon && !!held, 'exams created in the class (one in 3 days, one today)');
+
+    const d = await call(TA, 'GET', '/dashboard/teacher');
+    ok(d.status === 200, 'teacher A gets the dashboard');
+    const D = d.body.data;
+    ok(D.teacher.id === G.tA.tid, 'teacher identified');
+    const current = new Set(list.map((c) => c.id).concat(cls));
+    const own = D.classes.find((c) => c.class_id === cls);
+    ok(!!own && own.subjects.map(s => s.subject).join() === 'Mathematics' && D.classes.every((c) => current.has(c.class_id)) && !D.classes.some((c) => c.class_id === G.c9A),
+      "classes: own class 9E / Mathematics; this year's classes only (9A of 2024/2025 not shown)", D.classes.map((c) => c.class_name).join());
+    const act = (await pool.query("SELECT COUNT(*)::int n FROM students WHERE class_id=$1 AND status='active'", [cls])).rows[0].n;
+    ok(own?.student_count === act && act === 2, 'student count matches active 9E students', `${own?.student_count}`);
+    const at = D.attendance_today.find((x) => x.class_id === cls);
+    ok(!!at && at.total === act && at.marked === 1 && at.absent === 1, "today's attendance for 9E (marked/absent counted)", JSON.stringify(at));
+    ok(D.upcoming_exams.some(e => e.id === soon && e.days_until === 3) && D.upcoming_exams.every(e => D.classes.some((c) => c.class_name === e.class_name)), 'upcoming exams: own classes only');
+    const pending = D.grading_pending.find((g) => g.id === held);
+    ok(!!pending && pending.graded === 1 && pending.students === 2 && !D.grading_pending.some((g) => g.id === soon)
+      && D.grading_pending.every(g => g.subject_name === 'Mathematics' && g.graded < g.students), 'grading pending: own class+subject, held and incomplete only');
+    if (schoolDay) ok(D.timetable_today.some(s => s.period === 8 && s.room === 'R9'), `today's timetable slot shown (${todayName})`);
+    else ok(D.timetable_today.length === 0, "Sunday: no timetable slots today");
+    const keys = []; const walk = (o) => { if (o && typeof o === 'object') for (const [k, v] of Object.entries(o)) { keys.push(k); walk(v); } }; walk(D);
+    ok(!keys.some(k => /amount|balance|payment|fee|finance|due|paid/i.test(k)), 'no finance fields in the teacher dashboard', [...new Set(keys)].join(','));
+    const db2 = (await call(TB, 'GET', '/dashboard/teacher')).body.data;
+    ok(db2.classes.length === 0 && db2.attendance_today.length === 0 && db2.upcoming_exams.length === 0 && db2.grading_pending.length === 0, 'teacher B (no assignments): everything empty');
+    for (const [who, tok] of [['admin', A], ['principal', P], ['parent', PA]]) ok((await call(tok, 'GET', '/dashboard/teacher')).status === 403, `${who}: /dashboard/teacher -> 403`);
+  } finally {
+    await clear();
+    if (cls) {
+      await pool.query('DELETE FROM timetable WHERE class_id = $1', [cls]);
+      await call(A, 'DELETE', `/teachers/${G.tA.tid}/classes/${cls}/${G.math}`);
+    }
+    await restoreFixtureYear(call, A);
+    ok((await call(A, 'GET', '/academic-years/current')).body.data.name === FIXTURE_YEAR, `${FIXTURE_YEAR} current again`);
+    const left = (await pool.query('SELECT COUNT(*)::int n FROM teacher_classes WHERE teacher_id = $1 AND class_id <> $2', [G.tA.tid, G.c9A])).rows[0].n;
+    ok(left === 0, 'cleaned up: teacher A assigned to 9A only again', String(left));
+  }
 
   await pool.end();
   console.log(`\nPASS=${pass} FAIL=${fail}`);
