@@ -520,6 +520,8 @@ change old results):**
 
 **Built (M5a D, 2026-10-16):** the report card PDF is drawn from `studentResults`: subjects with semester 1, semester 2 and yearly scores ("*" incomplete, "check" over 100), total, average and "Rank n of m" per semester and year, the class size and how many are not ranked, days absent / late / excused, conduct and the homeroom remark, the yearly promotion when there is one, and per semester "Final" (locked) or "Provisional" in the footer. `?academic_year_id=` picks the year; the old `?term=` / `?semester=` are validated and print the same report card. The old PDF rank bug (all grades ever) is gone.
 
+**Built (M5b, 2026-10-16, no migration):** for the screens: `POST /grades` rows `{ student_id, clear: true }` remove a saved score (the subject becomes incomplete; audited `grades.score_cleared` with the old score; 409 while locked); `GET /grades/exams/:id` returns the roster (`students`, with `in_class`) and `locked`; `GET /grades/exams` returns `subject_name_am`; `GET /classes` returns the year's dates and `semester2_start` (teachers can't read `/academic-years`); `GET /results/class/:id/conduct` returns `locked` and `homeroom_teacher_id`. Suite g30. Frontend (asms-web M5b): exams (list, Ethiopian calendar, create with points left, admin edit/cancel), score entry, class results, conduct, student Results tab + report card PDF, settings (pass mark, manual grades, locks), semester 2 start dry run, promotion wizard suggestions.
+
 **Tests:** a new suite with fixed fixtures covers:
 - totals, averages, both semesters, the yearly figures
 - ties (1, 2, 2, 4) and incomplete students

@@ -12,7 +12,9 @@ const RATE   = rateSql();   // attendance rate (M4): late attended, excused left
 
 const { semesterFilter } = require('../utils/semesters');
 const { studentResults, ResultsError } = require('../services/results.service');
-const { LockedError, assertSemesterUnlocked } = require('../services/locks.service');
+const { LockedError, assertSemesterUnlocked, findLock } = require('../services/locks.service');
+const { inTransaction } = require('../utils/transaction');
+const { audit } = require('../utils/audit');
 
 // Helper: teacher id if this user teaches subjectId in classId (teacher_classes), else null
 const getAssignedTeacherId = async (userId, classId, subjectId) => {
@@ -60,14 +62,14 @@ const getExams = async (req, res) => {
     const { rows } = await db.query(
       `SELECT e.*,
          c.name AS class_name, c.grade_level,
-         s.name AS subject_name, s.code AS subject_code,
+         s.name AS subject_name, s.name_am AS subject_name_am, s.code AS subject_code,
          COUNT(g.id) AS grades_entered
        FROM exams e
        LEFT JOIN classes  c ON c.id=e.class_id
        LEFT JOIN subjects s ON s.id=e.subject_id
        LEFT JOIN grades   g ON g.exam_id=e.id
        ${where}
-       GROUP BY e.id, c.name, c.grade_level, s.name, s.code
+       GROUP BY e.id, c.name, c.grade_level, s.name, s.name_am, s.code
        ORDER BY e.created_at DESC`,
       params
     );
@@ -78,6 +80,8 @@ const getExams = async (req, res) => {
 };
 
 // POST /api/grades — Enter grades for an exam
+// A row { student_id, clear: true } removes a saved score (M5b): the result becomes incomplete.
+// Cleared scores are audited (grades.score_cleared) with their old values.
 const enterGrades = async (req, res) => {
   try {
     const { exam_id, grades } = req.body;
@@ -103,6 +107,11 @@ const enterGrades = async (req, res) => {
       return sendError(res, `Scores must be numbers between 0 and ${maxScore}.`, 400,
         { invalid });
     }
+    const both = grades.filter(g => g.clear === true && g.score !== undefined && g.score !== null)
+      .map(g => g.student_id);
+    if (both.length) {
+      return sendError(res, 'A row cannot both clear and set a score.', 400, { student_ids: both });
+    }
 
     // Teachers: only exams for their own class+subject, and only students in that class
     if (req.user.role === 'teacher') {
@@ -126,22 +135,34 @@ const enterGrades = async (req, res) => {
     const { rows: ec } = await db.query('SELECT name, academic_year_id FROM classes WHERE id = $1', [exam.class_id]);
     await assertSemesterUnlocked(db, { classId: exam.class_id, yearId: ec[0].academic_year_id, semester: exam.semester, className: ec[0].name });
 
-    let saved = 0;
-    for (const g of grades) {
-      if (g.student_id && g.score !== undefined && g.score !== null) {
-        await db.query(
-          `INSERT INTO grades (exam_id, student_id, score, remarks)
-           VALUES ($1,$2,$3,$4)
-           ON CONFLICT (exam_id, student_id)
-           DO UPDATE SET score=$3, grade_letter=NULL, remarks=$4, entered_at=NOW()`,
-          [exam_id, g.student_id, parseFloat(g.score), g.remarks || null]
-        );
-        saved++;
+    const { saved, cleared } = await inTransaction(async (client) => {
+      let saved = 0;
+      const cleared = [];
+      for (const g of grades) {
+        if (!g.student_id) continue;
+        if (g.clear === true) {
+          const { rows } = await client.query(
+            'DELETE FROM grades WHERE exam_id = $1 AND student_id = $2 RETURNING student_id, score',
+            [exam_id, g.student_id]
+          );
+          if (rows[0]) cleared.push({ student_id: rows[0].student_id, score: Number(rows[0].score) });
+        } else if (g.score !== undefined && g.score !== null) {
+          await client.query(
+            `INSERT INTO grades (exam_id, student_id, score, remarks)
+             VALUES ($1,$2,$3,$4)
+             ON CONFLICT (exam_id, student_id)
+             DO UPDATE SET score=$3, grade_letter=NULL, remarks=$4, entered_at=NOW()`,
+            [exam_id, g.student_id, parseFloat(g.score), g.remarks || null]
+          );
+          saved++;
+        }
       }
-    }
+      if (cleared.length) await audit(client, req, 'grades.score_cleared', 'exam', exam_id, { cleared });
+      return { saved, cleared: cleared.length };
+    });
 
-    return sendSuccess(res, { total_graded: saved },
-      `Grades saved for ${saved} student(s).`);
+    return sendSuccess(res, { total_graded: saved, cleared },
+      `Grades saved for ${saved} student(s)${cleared ? `, ${cleared} cleared` : ''}.`);
 
   } catch (err) {
     if (err instanceof LockedError) return sendError(res, err.message, err.status, err.errors);
@@ -154,7 +175,8 @@ const enterGrades = async (req, res) => {
 const getExamGrades = async (req, res) => {
   try {
     const { rows: ex } = await db.query(
-      `SELECT e.*, c.name AS class_name, c.grade_level, c.section, s.name AS subject_name, s.name_am AS subject_name_am
+      `SELECT e.*, c.name AS class_name, c.grade_level, c.section, c.academic_year_id AS class_year_id,
+              s.name AS subject_name, s.name_am AS subject_name_am
        FROM exams e JOIN classes c ON c.id = e.class_id JOIN subjects s ON s.id = e.subject_id WHERE e.id = $1`, [req.params.examId]);
     if (!ex[0]) return sendError(res, 'Exam not found.', 404);
     if (req.user.role === 'teacher' && !(await getAssignedTeacherId(req.user.id, ex[0].class_id, ex[0].subject_id))) {
@@ -165,8 +187,19 @@ const getExamGrades = async (req, res) => {
               s.student_number, s.first_name, s.fathers_name, s.last_name, s.first_name_am, s.fathers_name_am, s.last_name_am
        FROM grades g JOIN students s ON s.id = g.student_id WHERE g.exam_id = $1
        ORDER BY s.first_name, s.last_name`, [ex[0].id]);
-    const { grade_letter: _gl, ...exam } = ex[0];
-    return sendSuccess(res, { exam, grades }, `${grades.length} score(s) entered.`);
+    // The roster for score entry (M5b): the class's active students and anyone with a score
+    // here (moved or archived since: in_class false, their score can no longer be changed by a teacher)
+    const { rows: students } = await db.query(
+      `SELECT s.id AS student_id, s.student_number, s.first_name, s.fathers_name, s.last_name,
+              s.first_name_am, s.fathers_name_am, s.last_name_am, s.status,
+              (s.class_id = $2) AS in_class, g.score, g.remarks, g.updated_at
+       FROM students s LEFT JOIN grades g ON g.student_id = s.id AND g.exam_id = $1
+       WHERE (s.class_id = $2 AND s.status = 'active') OR g.id IS NOT NULL
+       ORDER BY s.first_name, s.fathers_name, s.last_name`, [ex[0].id, ex[0].class_id]);
+    const { grade_letter: _gl, class_year_id, ...exam } = ex[0];
+    const lock = await findLock(db, { yearId: class_year_id, semester: exam.semester, classId: exam.class_id });
+    exam.locked = !!lock;   // M5b: score entry is read-only while the semester is locked (D29)
+    return sendSuccess(res, { exam, grades, students }, `${grades.length} score(s) entered.`);
   } catch (err) {
     return sendServerError(res, err, 'Server error.');
   }

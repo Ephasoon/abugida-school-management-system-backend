@@ -21,7 +21,7 @@ const { inTransaction } = require('../utils/transaction');
 const { parseSemester, semesterNumber } = require('../utils/semesters');
 const { academicYearEthiopian } = require('../utils/ethiopianDate');
 const { loadClass, ResultsError } = require('../services/results.service');
-const { LockedError, assertSemesterUnlocked } = require('../services/locks.service');
+const { LockedError, assertSemesterUnlocked, findLock } = require('../services/locks.service');
 
 const CONDUCT = ['A', 'B', 'C', 'D'];
 const MAX_REMARK = 300;
@@ -62,7 +62,8 @@ const getConduct = async (req, res) => {
           OR EXISTS (SELECT 1 FROM grades g JOIN exams e ON e.id = g.exam_id WHERE g.student_id = s.id AND e.class_id = $1)
           OR sc.class_id = $1
        ORDER BY s.first_name, s.last_name`, [cls.id, cls.academic_year_id, semester]);
-    return sendSuccess(res, { class_id: cls.id, academic_year_id: cls.academic_year_id, semester, students: rows }, 'Conduct retrieved.');
+    const locked = !!(await findLock(db, { yearId: cls.academic_year_id, semester, classId: cls.id }));   // M5b: read-only form
+    return sendSuccess(res, { class_id: cls.id, academic_year_id: cls.academic_year_id, semester, locked, homeroom_teacher_id: cls.homeroom_teacher_id, students: rows }, 'Conduct retrieved.');
   } catch (err) {
     return fail(res, err, 'Server error.');
   }
