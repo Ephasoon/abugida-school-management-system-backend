@@ -19,6 +19,29 @@ const { isUuid }          = require('../middleware/validateIds.middleware');
 const DAYS    = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const PERIODS = [1,2,3,4,5,6,7,8];
 
+// Conflicts for a slot of classId on day/period (excludeId: the slot being edited):
+// the class already has a slot then, or the teacher already teaches then in a class of
+// the same academic year. Slots of other years (last year's timetable) never block.
+// Returns the 409 message or null.
+const findConflict = async ({ classId, teacherId, day, period, excludeId = null }) => {
+  const { rows: classConflict } = await db.query(
+    `SELECT id FROM timetable
+     WHERE class_id = $1 AND day = $2 AND period = $3 AND ($4::uuid IS NULL OR id <> $4)`,
+    [classId, day, period, excludeId]
+  );
+  if (classConflict[0]) return `Conflict: This class already has a slot on ${day} period ${period}.`;
+  if (!teacherId) return null;
+  const { rows: teacherConflict } = await db.query(
+    `SELECT t.id FROM timetable t
+     JOIN classes c ON c.id = t.class_id
+     WHERE t.teacher_id = $1 AND t.day = $2 AND t.period = $3 AND ($4::uuid IS NULL OR t.id <> $4)
+       AND c.academic_year_id = (SELECT academic_year_id FROM classes WHERE id = $5)`,
+    [teacherId, day, period, excludeId, classId]
+  );
+  if (teacherConflict[0]) return `Teacher conflict: This teacher already has a class on ${day} period ${period}.`;
+  return null;
+};
+
 // ── POST /api/timetable ──────────────────────────────────────
 // Create one timetable slot (class + subject + teacher + day + period)
 const createSlot = async (req, res) => {
@@ -47,31 +70,9 @@ const createSlot = async (req, res) => {
       return sendError(res, `period must be between 1 and 8.`, 400);
     }
 
-    // Check for conflict — same class, same day, same period
-    const { rows: conflict } = await db.query(
-      `SELECT id FROM timetable
-       WHERE class_id = $1 AND day = $2 AND period = $3`,
-      [class_id, day, parseInt(period)]
-    );
-
-    if (conflict[0]) {
-      return sendError(res,
-        `Conflict: This class already has a slot on ${day} period ${period}.`, 409);
-    }
-
-    // Check teacher conflict — same teacher, same day, same period
-    if (teacher_id) {
-      const { rows: teacherConflict } = await db.query(
-        `SELECT id FROM timetable
-         WHERE teacher_id = $1 AND day = $2 AND period = $3`,
-        [teacher_id, day, parseInt(period)]
-      );
-
-      if (teacherConflict[0]) {
-        return sendError(res,
-          `Teacher conflict: This teacher already has a class on ${day} period ${period}.`, 409);
-      }
-    }
+    // Same class, or same teacher in the same academic year, at that day and period
+    const conflict = await findConflict({ classId: class_id, teacherId: teacher_id, day, period: parseInt(period) });
+    if (conflict) return sendError(res, conflict, 409);
 
     const { rows } = await db.query(
       `INSERT INTO timetable
@@ -214,6 +215,21 @@ const updateSlot = async (req, res) => {
     const { id } = req.params;
     const { subject_id, teacher_id, day, period, start_time, end_time, room } = req.body;
 
+    const { rows: cur } = await db.query('SELECT class_id, teacher_id, day, period FROM timetable WHERE id = $1', [id]);
+    if (!cur[0]) return sendError(res, 'Slot not found.', 404);
+    if (day && !DAYS.includes(day)) {
+      return sendError(res, `day must be one of: ${DAYS.join(', ')}`, 400);
+    }
+    if (period && !PERIODS.includes(parseInt(period))) {
+      return sendError(res, `period must be between 1 and 8.`, 400);
+    }
+    // The slot as it will be, checked like a new one (itself excluded)
+    const next = { day: day || cur[0].day, period: period ? parseInt(period) : cur[0].period };
+    const conflict = await findConflict({
+      classId: cur[0].class_id, teacherId: teacher_id || cur[0].teacher_id, ...next, excludeId: id,
+    });
+    if (conflict) return sendError(res, conflict, 409);
+
     const { rows } = await db.query(
       `UPDATE timetable SET
          subject_id = COALESCE($1, subject_id),
@@ -225,7 +241,7 @@ const updateSlot = async (req, res) => {
          room       = COALESCE($7, room)
        WHERE id = $8
        RETURNING *`,
-      [subject_id, teacher_id, day, period, start_time, end_time, room, id]
+      [subject_id, teacher_id, day, period ? parseInt(period) : null, start_time, end_time, room, id]
     );
 
     if (!rows[0]) return sendError(res, 'Slot not found.', 404);
