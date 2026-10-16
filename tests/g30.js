@@ -52,6 +52,11 @@ const tag = Date.now().toString(36);
     now = await scores();
     ok(r.status === 200 && now[S.a] === 75 && !(S.b in now), 'one save sets Abeba and clears Bethel');
 
+    r = (await call(TB, 'GET', `/grades/exams/${exam}`)).body?.data;
+    const roster = Object.fromEntries((r?.students ?? []).map((x) => [x.student_id, x]));
+    ok(r?.students?.length === 2 && roster[S.a]?.score !== null && roster[S.b]?.score === null && roster[S.a].in_class === true,
+      'roster: both students, Bethel without a score', JSON.stringify(r?.students?.map((x) => [x.first_name, x.score])));
+
     console.log('== Refused');
     ok((await save(A, [{ student_id: S.a, score: 70, clear: true }])).status === 400, 'clear and a score in one row -> 400');
     ok((await save(TA, [{ student_id: S.a, clear: true }])).status === 403, 'teacher A (not assigned) -> 403');

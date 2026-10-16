@@ -187,10 +187,19 @@ const getExamGrades = async (req, res) => {
               s.student_number, s.first_name, s.fathers_name, s.last_name, s.first_name_am, s.fathers_name_am, s.last_name_am
        FROM grades g JOIN students s ON s.id = g.student_id WHERE g.exam_id = $1
        ORDER BY s.first_name, s.last_name`, [ex[0].id]);
+    // The roster for score entry (M5b): the class's active students and anyone with a score
+    // here (moved or archived since: in_class false, their score can no longer be changed by a teacher)
+    const { rows: students } = await db.query(
+      `SELECT s.id AS student_id, s.student_number, s.first_name, s.fathers_name, s.last_name,
+              s.first_name_am, s.fathers_name_am, s.last_name_am, s.status,
+              (s.class_id = $2) AS in_class, g.score, g.remarks, g.updated_at
+       FROM students s LEFT JOIN grades g ON g.student_id = s.id AND g.exam_id = $1
+       WHERE (s.class_id = $2 AND s.status = 'active') OR g.id IS NOT NULL
+       ORDER BY s.first_name, s.fathers_name, s.last_name`, [ex[0].id, ex[0].class_id]);
     const { grade_letter: _gl, class_year_id, ...exam } = ex[0];
     const lock = await findLock(db, { yearId: class_year_id, semester: exam.semester, classId: exam.class_id });
     exam.locked = !!lock;   // M5b: score entry is read-only while the semester is locked (D29)
-    return sendSuccess(res, { exam, grades }, `${grades.length} score(s) entered.`);
+    return sendSuccess(res, { exam, grades, students }, `${grades.length} score(s) entered.`);
   } catch (err) {
     return sendServerError(res, err, 'Server error.');
   }
