@@ -48,7 +48,7 @@ const getTeacherDashboard = async (req, res) => {
        ORDER BY c.name`,
       [classIds]);
 
-    // Upcoming exams (next 14 days) in own classes
+    // Upcoming exams (next 14 days) in own classes (this year's, from the list above)
     const { rows: upcoming } = await db.query(
       `SELECT e.id, e.name, e.exam_type, e.term, e.semester, e.exam_date,
               c.name AS class_name, s.name AS subject_name, s.name_am AS subject_name_am,
@@ -62,7 +62,8 @@ const getTeacherDashboard = async (req, res) => {
        LIMIT 20`,
       [classIds]);
 
-    // Grading to do: own class+subject exams (already held or undated) with grades missing
+    // Grading to do: own class+subject exams of this year's classes (already held or undated)
+    // with grades missing
     const { rows: grading } = await db.query(
       `SELECT e.id, e.name, e.term, e.semester, e.exam_date, c.name AS class_name, s.name AS subject_name, s.name_am AS subject_name_am,
               (SELECT COUNT(*)::int FROM grades g WHERE g.exam_id = e.id) AS graded,
@@ -70,18 +71,20 @@ const getTeacherDashboard = async (req, res) => {
        FROM exams e
        JOIN teacher_classes tc ON tc.class_id = e.class_id AND tc.subject_id = e.subject_id AND tc.teacher_id = $1
        JOIN classes  c ON c.id = e.class_id
+       JOIN academic_years ay ON ay.id = c.academic_year_id AND ay.is_current
        JOIN subjects s ON s.id = e.subject_id
        WHERE e.exam_date IS NULL OR e.exam_date <= CURRENT_DATE
        ORDER BY e.exam_date DESC NULLS LAST`,
       [teacherId]);
     const gradingPending = grading.filter(g => g.graded < g.students);
 
-    // Today's timetable slots for this teacher
+    // Today's timetable slots for this teacher in this year's classes
     const { rows: today } = await db.query(
       `SELECT t.period, t.start_time, t.end_time, t.room,
               c.name AS class_name, s.name AS subject_name, s.name_am AS subject_name_am
        FROM timetable t
        JOIN classes  c ON c.id = t.class_id
+       JOIN academic_years ay ON ay.id = c.academic_year_id AND ay.is_current
        JOIN subjects s ON s.id = t.subject_id
        WHERE t.teacher_id = $1
          AND t.day::text = trim(to_char(CURRENT_DATE, 'Day'))
