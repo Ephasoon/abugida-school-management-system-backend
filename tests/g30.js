@@ -70,6 +70,8 @@ const tag = Date.now().toString(36);
     ok(r.status === 409 && /locked/.test(r.body?.message), 'clearing in a locked semester -> 409', r.body?.message);
     ok((await scores())[S.a] === 75, 'the score is still there');
     ok((await call(TB, 'GET', `/grades/exams/${exam}`)).body?.data?.exam?.locked === true, 'GET /grades/exams/:id says locked');
+    ok((await call(TB, 'GET', `/results/class/${cls}/conduct?semester=1`)).body?.data?.locked === true, 'GET conduct says locked');
+    ok((await call(TB, 'GET', `/results/class/${cls}/conduct?semester=2`)).body?.data?.locked === false, 'semester 2 conduct is not locked');
     await call(A, 'DELETE', `/results/locks/${locks.pop()}`);
     ok((await save(A, [{ student_id: S.a, clear: true }])).status === 200, 'after unlocking: clearing works');
     ok((await call(TB, 'GET', `/grades/exams/${exam}`)).body?.data?.exam?.locked === false, 'and it is no longer locked');
