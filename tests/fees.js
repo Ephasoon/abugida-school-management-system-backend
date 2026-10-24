@@ -3,7 +3,8 @@
 // INSERT INTO payments. Scratch DB only (pass the tdb pool).
 //   legacyPayment(pool, { student_id, academic_year_id, due, paid, term, category })
 //     → a charge without a month (as 024 migrates old term payments) and, if paid > 0, a
-//       payment and its allocation; returns { charge_id, payment_id }
+//       payment and its allocation; returns { charge_id, payment_id }. Also the way to set up
+//       amounts owed and paid now that POST /finance/payments takes allocations only (M10).
 //   clearFees(pool, studentIds) → removes their allocations, payments, charges and discounts
 const legacyPayment = async (pool, { student_id, academic_year_id, due, paid = 0, term = 'term1', category = 'tuition' }) => {
   const charge = (await pool.query(
@@ -12,8 +13,8 @@ const legacyPayment = async (pool, { student_id, academic_year_id, due, paid = 0
   let payment = null;
   if (Number(paid) > 0) {
     payment = (await pool.query(
-      `INSERT INTO payments (student_id, academic_year_id, term, category, amount_due, amount_paid, amount)
-       VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING id`, [student_id, academic_year_id, term, category, due, paid])).rows[0].id;
+      `INSERT INTO payments (student_id, academic_year_id, amount) VALUES ($1, $2, $3) RETURNING id`,
+      [student_id, academic_year_id, paid])).rows[0].id;
     await pool.query('INSERT INTO payment_allocations (payment_id, charge_id, amount) VALUES ($1, $2, $3)', [payment, charge, paid]);
   }
   return { charge_id: charge, payment_id: payment };

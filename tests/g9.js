@@ -1,11 +1,11 @@
 // Phase 1 Group D: finance outstanding, parent family fees, teacher dashboard.
 // The dashboard part runs in a year containing today (tests/todayyear.js), 2024/2025 put back after.
-// Scratch DB backend on :3100 (+ static frontend on :5500 for one browser check). Run via guard.sh.
+// Scratch DB backend on :3100. Run via guard.sh.
 const pool = require('./tdb');
 const G = require('./g3.json');
 const { createFreeYear } = require('./years');
 const { FIXTURE_YEAR, useTodayYear, restoreFixtureYear } = require('./todayyear');
-const { launch, Browser } = require('./cdp');
+const { legacyPayment } = require('./fees');
 const API = 'http://localhost:3100/api';
 let pass = 0, fail = 0;
 const ok = (c, m, x = '') => { c ? pass++ : fail++; console.log(`  ${c ? 'PASS' : 'FAIL'}  ${m}${x ? '  ' + x : ''}`); };
@@ -29,11 +29,10 @@ const tag = String(Date.now()).slice(-6);
   const ny = await createFreeYear(call, A, 3000, 4000);
   await call(A, 'POST', `/academic-years/${ny.body.data.id}/activate`);
   try {
-    const pay = (due, paid, sid) => call(A, 'POST', '/finance/payments', { student_id: sid, amount_due: due, amount_paid: paid, payment_method: 'cash', payment_date: '2026-10-08' });
+    const pay = (due, paid, sid) => legacyPayment(pool, { student_id: sid, academic_year_id: ny.body.data.id, due, paid });
     // 23,600 due / 22,600 paid across three payments: two paid in full, one with 1,000 left
-    // plus a zero-paid charge (was rejected before the fix)
-    const zero = await pay(0, 0, G.s1.sid);
-    ok(zero.status === 201, 'payment row with amount 0 accepted', String(zero.status));
+    // plus a charge of 0 with nothing paid
+    await pay(0, 0, G.s1.sid);
     await pay(10000, 10000, G.s1.sid); await pay(8600, 8600, G.s2.sid); await pay(5000, 4000, G.s3.sid);
     for (const [who, tok] of [['admin', A], ['principal', P]]) {
       const s = (await call(tok, 'GET', '/finance/summary')).body.data.summary;
@@ -44,19 +43,6 @@ const tag = String(Date.now()).slice(-6);
     // Decision 4: outstanding = sum of per-student debts; net = expected - collected; credit = overpayments
     ok(+ov.net_balance === +ov.total_expected - +ov.total_collected && +ov.total_outstanding - +ov.total_credit === +ov.net_balance && +ov.outstanding === +ov.total_outstanding,
       'analytics overview: outstanding - credit = net = expected - collected', `${ov.total_outstanding} - ${ov.total_credit} = ${ov.net_balance}`);
-
-    // Browser: the existing finance page now shows 1,000
-    const { close, wsUrl } = await launch(); const b = new Browser(wsUrl); await b.connect();
-    try {
-      const pg = await b.newPage();
-      await pg.goto('http://localhost:5599/login.html', 800);
-      await pg.waitFor(`typeof handleLogin === 'function'`, 15000);
-      await pg.eval(`document.getElementById('email').value='admin@asms.et'; document.getElementById('password').value='Admin@1234'; handleLogin(); true`);
-      await pg.waitFor(`location.pathname.endsWith('dashboard.html')`, 15000);
-      await pg.goto('http://localhost:5599/finance.html', 2500);
-      const shown = await pg.eval(`document.getElementById('totalOutstanding').textContent.trim()`);
-      ok(shown === '1,000', 'finance.html shows Outstanding 1,000 (no frontend change)', shown);
-    } finally { await close(); }
   } finally {
     await call(A, 'POST', `/academic-years/${origYear.id}/activate`);
     ok((await call(A, 'GET', '/academic-years/current')).body.data.id === origYear.id, 'original academic year re-activated');
@@ -68,9 +54,10 @@ const tag = String(Date.now()).slice(-6);
   const k1 = await mkStudent('One'), k2 = await mkStudent('Two'), k3 = await mkStudent('Three');
   const par = (await call(A, 'POST', '/accounts/parents', { full_name: 'Fee Parent', phone: '0911', email: `fees${tag}@asms.et` })).body.data;
   for (const [k, rel] of [[k1, 'father'], [k2, 'father'], [k3, 'father']]) await call(A, 'POST', `/accounts/parents/${par.id}/children`, { student_id: k.id, relationship: rel });
-  await call(A, 'POST', '/finance/payments', { student_id: k1.id, amount_due: 3500, amount_paid: 3500, payment_method: 'cash', payment_date: '2026-10-08' });
-  await call(A, 'POST', '/finance/payments', { student_id: k2.id, amount_due: 3500, amount_paid: 1500, payment_method: 'telebirr', reference: 'TB-G9', payment_date: '2026-10-08' });
-  await call(A, 'POST', '/finance/payments', { student_id: k2.id, amount_due: 500, amount_paid: 0, category: 'material', payment_method: 'cash', payment_date: '2026-10-08' });
+  const cy = (await pool.query('SELECT id FROM academic_years WHERE is_current')).rows[0].id;
+  await legacyPayment(pool, { student_id: k1.id, academic_year_id: cy, due: 3500, paid: 3500 });
+  await legacyPayment(pool, { student_id: k2.id, academic_year_id: cy, due: 3500, paid: 1500 });
+  await legacyPayment(pool, { student_id: k2.id, academic_year_id: cy, due: 500, paid: 0, category: 'material' });
   const l = await call(null, 'POST', '/auth/login', { email: `fees${tag}@asms.et`, password: par.temporary_password });
   const PT = (await call(l.body.data.accessToken, 'POST', '/auth/change-password', { currentPassword: par.temporary_password, newPassword: 'Fees#2026' })).body.data.accessToken;
   const ff = await call(PT, 'GET', '/parent/fees');
@@ -125,15 +112,18 @@ const tag = String(Date.now()).slice(-6);
     }
     const marked = await call(TA, 'POST', '/attendance', { class_id: cls, date: pgToday, records: [{ student_id: sa, status: 'absent' }] });
     ok(marked.status === 201, "teacher A marks today's attendance in own class of the current year", String(marked.status));
-    const exam = async (name, date) => (await call(A, 'POST', '/grades/exams', { class_id: cls, subject_id: G.math, name: `${name} ${tag}`, exam_type: 'quiz', max_score: 10, exam_date: date })).body.data?.id;
+    const exam = async (name, date) => (await call(A, 'POST', '/exam-schedule', { class_id: cls, subject_id: G.math, name: `${name} ${tag}`, exam_type: 'quiz', max_score: 10, exam_date: date })).body.data?.id;
     const inDays = (n) => { const x = new Date(`${pgToday}T00:00:00Z`); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
     const soon = await exam('G9 upcoming', inDays(3));
     const held = await exam('G9 held', pgToday);
     await call(A, 'POST', '/grades', { exam_id: held, grades: [{ student_id: sa, score: 7 }] });
     ok(!!soon && !!held, 'exams created in the class (one in 3 days, one today)');
     // 9A of 2024/2025 (teacher A, Mathematics): an undated exam with a score missing, and one
-    // dated in 3 days (raw insert: the API refuses dates outside the class's year)
-    const pastHeld = (await call(A, 'POST', '/grades/exams', { class_id: G.c9A, subject_id: G.math, name: `G9 past ${tag}`, exam_type: 'quiz', max_score: 1, semester: 1 })).body.data?.id;
+    // dated in 3 days (raw inserts: the API needs a date inside the class's year since M10)
+    const pastHeld = (await pool.query(
+      `INSERT INTO exams (class_id, subject_id, academic_year_id, name, exam_type, max_score, semester)
+       SELECT id, $2, academic_year_id, $3, 'quiz', 1, 'semester1' FROM classes WHERE id = $1 RETURNING id`,
+      [G.c9A, G.math, `G9 past ${tag}`])).rows[0]?.id;
     await call(A, 'POST', '/grades', { exam_id: pastHeld, grades: [{ student_id: G.s1.sid, score: 1 }] });
     const pastSoon = (await pool.query(
       `INSERT INTO exams (class_id, subject_id, academic_year_id, name, exam_type, max_score, exam_date, semester)

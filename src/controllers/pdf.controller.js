@@ -25,8 +25,8 @@ const { studentResults, ResultsError } = require('../services/results.service');
 
 // ── GET /api/pdf/report-card/:studentId?academic_year_id= ────
 // Both semesters and the year from the results service (M5a, B2), so the PDF shows the
-// same numbers as the report card and the class results. The old ?term= / ?semester=
-// are still accepted (validated) and print the same full report card.
+// same numbers as the report card and the class results. ?semester= is still accepted
+// (validated) and prints the same full report card; the old ?term= is refused.
 const getReportCardPDF = async (req, res) => {
   try {
     const { studentId } = req.params;

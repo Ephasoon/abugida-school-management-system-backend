@@ -37,7 +37,7 @@ router.put   ('/discounts/:id', adminOnly, discountId, C.updateDiscount);
 router.delete('/discounts/:id', adminOnly, discountId, C.deleteDiscount);
 
 // Payments (receipts)
-router.post('/payments',             adminOnly,     validateBodyIds({ student_id: 'students', fee_structure_id: 'fee_structures' }), C.recordPayment);
+router.post('/payments',             adminOnly,     validateBodyIds({ student_id: 'students' }), C.recordPayment);
 router.get ('/payments',             schoolLeaders, C.getPayments);
 router.get ('/payments/:id',         schoolLeaders, paymentId, C.getPayment);
 router.post('/payments/:id/reverse', adminOnly,     paymentId, C.reversePayment);
@@ -46,6 +46,5 @@ router.post('/payments/:id/reverse', adminOnly,     paymentId, C.reversePayment)
 router.get ('/summary',               schoolLeaders, C.getFinanceSummary);
 router.get ('/outstanding',           schoolLeaders, C.getOutstanding);
 router.get ('/student/:studentId',    schoolLeaders, checkIds, C.getStudentBalance);
-router.get ('/unpaid',                schoolLeaders, C.getUnpaidStudents);
 
 module.exports = router;

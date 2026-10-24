@@ -26,11 +26,17 @@ const resultsRoutes      = require('./routes/results.routes');
 const { sendServerError } = require('./utils/errors');
 
 const app = express();
+// Behind a reverse proxy (nginx, docs/DEPLOYMENT.md): TRUST_PROXY=loopback (or a hop count / address),
+// so req.ip (login rate limit, audit log) is the client's and not the proxy's. Unset: no proxy.
+if (process.env.TRUST_PROXY) {
+  const tp = process.env.TRUST_PROXY.trim();
+  app.set('trust proxy', /^\d+$/.test(tp) ? Number(tp) : tp === 'true' ? true : tp);
+}
 app.use(helmet());
-// Allowed browser origins come from CORS_ORIGINS (comma-separated).
-// The 'null' origin (file://, sandboxed iframes) is never allowed.
-const DEFAULT_CORS_ORIGINS = 'http://localhost:5500,http://127.0.0.1:5500,http://localhost:5501,http://127.0.0.1:5501';
-const corsOrigins = (process.env.CORS_ORIGINS || DEFAULT_CORS_ORIGINS)
+// Other browser origins allowed to call the API: CORS_ORIGINS (comma-separated). None by default:
+// the app and the API share one origin (production: one domain, app at /, API at /api; development:
+// the Vite proxy). The 'null' origin (file://, sandboxed iframes) is never allowed.
+const corsOrigins = (process.env.CORS_ORIGINS || '')
   .split(',').map(o => o.trim()).filter(o => o && o !== 'null');
 app.use(cors({
   origin: corsOrigins,

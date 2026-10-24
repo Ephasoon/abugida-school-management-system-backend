@@ -20,7 +20,7 @@ ok $(code "$(req GET /students/$S2/summary "$TA")") 200 "teacher -> any student 
 ok $(code "$(req GET /students/$S2 "$TS")") 403 "student -> GET /students/:id still staff-only"
 
 echo "== Finance is admin-only"
-for ep in /finance/summary /finance/payments /finance/unpaid /finance/student/$S1; do
+for ep in /finance/summary /finance/payments /finance/student/$S1; do
   ok $(code "$(req GET $ep "$TA")") 403 "teacher GET $ep"; done
 ok $(code "$(req POST /finance/payments "$TA" '{}')") 403 "teacher POST /finance/payments"
 ok $(code "$(req GET /finance/summary "$AT")") 200 "admin GET /finance/summary"
@@ -48,9 +48,9 @@ ok "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $AT" loca
 
 echo "== Grade writes limited to assigned class+subject"
 EX=$(g c9A); MATH=$(g math); ENG=$(g eng)
-R=$(req POST /grades/exams "$TA" "{\"class_id\":\"$EX\",\"subject_id\":\"$MATH\",\"name\":\"Quiz A\",\"exam_type\":\"quiz\",\"term\":\"term1\",\"max_score\":10}"); ok $(code "$R") 201 "teacher A creates exam 9A Math"; EXAM=$(js "$R" "r.data.id")
-ok $(code "$(req POST /grades/exams "$TA" "{\"class_id\":\"$EX\",\"subject_id\":\"$ENG\",\"name\":\"Q\",\"exam_type\":\"quiz\",\"term\":\"term1\"}")") 403 "teacher A creates exam 9A English"
-ok $(code "$(req POST /grades/exams "$TB" "{\"class_id\":\"$EX\",\"subject_id\":\"$MATH\",\"name\":\"Q\",\"exam_type\":\"quiz\",\"term\":\"term1\"}")") 403 "teacher B creates exam 9A Math"
+R=$(req POST /exam-schedule "$TA" "{\"class_id\":\"$EX\",\"subject_id\":\"$MATH\",\"name\":\"Quiz A\",\"exam_type\":\"quiz\",\"exam_date\":\"2024-11-15\",\"max_score\":10}"); ok $(code "$R") 201 "teacher A creates exam 9A Math"; EXAM=$(js "$R" "r.data.id")
+ok $(code "$(req POST /exam-schedule "$TA" "{\"class_id\":\"$EX\",\"subject_id\":\"$ENG\",\"name\":\"Q\",\"exam_type\":\"quiz\",\"exam_date\":\"2024-11-15\"}")") 403 "teacher A creates exam 9A English"
+ok $(code "$(req POST /exam-schedule "$TB" "{\"class_id\":\"$EX\",\"subject_id\":\"$MATH\",\"name\":\"Q\",\"exam_type\":\"quiz\",\"exam_date\":\"2024-11-15\"}")") 403 "teacher B creates exam 9A Math"
 ok $(code "$(req POST /grades "$TA" "{\"exam_id\":\"$EXAM\",\"grades\":[{\"student_id\":\"$S1\",\"score\":9},{\"student_id\":\"$S2\",\"score\":7},{\"score\":5}]}")") 200 "teacher A grades own class"
 R=$(req POST /grades "$TA" "{\"exam_id\":\"$EXAM\",\"grades\":[{\"student_id\":\"$S1\",\"score\":9.5},{\"student_id\":\"$S3\",\"score\":5}]}"); ok $(code "$R") 403 "teacher A grades a 9B student"; echo "  body: ${R#* }"
 ok $(code "$(req POST /grades "$TB" "{\"exam_id\":\"$EXAM\",\"grades\":[{\"student_id\":\"$S1\",\"score\":1}]}")") 403 "teacher B grades A's exam"

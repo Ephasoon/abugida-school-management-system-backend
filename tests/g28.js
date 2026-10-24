@@ -5,6 +5,7 @@
 // with the yearly results (not promoted -> suggested repeat; incomplete / pending warnings).
 // Scratch DB backend on :3100.
 const pool = require('./tdb');
+const { newExam, examDate } = require('./exams');
 const { createFreeYear } = require('./years');
 const { useTodayYear, restoreFixtureYear, localDate } = require('./todayyear');
 const API = 'http://localhost:3100/api';
@@ -36,7 +37,7 @@ const audited = async (action) => (await pool.query("SELECT COUNT(*)::int n FROM
   try {
     const stu = async (first) => (await call(A, 'POST', '/students', { first_name: first, last_name: `G28${tag}`, gender: 'male', class_id: cls })).body.data.id;
     const S = { top: await stu('Top'), low: await stu('Low'), part: await stu('Part') };
-    const exam = (sem, name = 'Math', max = 100) => call(A, 'POST', '/grades/exams', { class_id: cls, subject_id: G.math, name: `${name} ${tag}`, exam_type: 'final', max_score: max, semester: sem });
+    const exam = (sem, name = 'Math', max = 100) => newExam(call, A, { class_id: cls, subject_id: G.math, name: `${name} ${tag}`, exam_type: 'final', max_score: max, semester: sem });
     const m1 = (await exam(1)).body.data.id, m2 = (await exam(2)).body.data.id;
     await call(A, 'POST', '/grades', { exam_id: m1, grades: [{ student_id: S.top, score: 90 }, { student_id: S.low, score: 40 }, { student_id: S.part, score: 70 }] });
     await call(A, 'POST', '/grades', { exam_id: m2, grades: [{ student_id: S.top, score: 90 }, { student_id: S.low, score: 40 }] });
@@ -110,9 +111,9 @@ const audited = async (action) => (await pool.query("SELECT COUNT(*)::int n FROM
     ok(r.status === 409 && /Semester 1 .* E\.C\. is locked for Grade 9 Section A/.test(r.body?.message), 'scores of a locked semester -> 409 naming the lock', r.body?.message);
     ok((await exam(1, 'New', 1)).status === 409, 'new exam in the locked semester -> 409');
     ok((await call(A, 'PUT', `/exam-schedule/${m1}`, { name: 'Renamed' })).status === 409, 'editing its exam -> 409');
-    const sem2Extra = (await call(A, 'POST', '/grades/exams', { class_id: cls, subject_id: G.eng, name: `Spare ${tag}`, exam_type: 'quiz', max_score: 1, semester: 2 })).body?.data?.id;
+    const sem2Extra = (await newExam(call, A, { class_id: cls, subject_id: G.eng, name: `Spare ${tag}`, exam_type: 'quiz', max_score: 1, semester: 2 })).body?.data?.id;
     ok(!!sem2Extra, 'semester 2 is not locked: a new exam there -> 201');
-    ok((await call(A, 'PUT', `/exam-schedule/${sem2Extra}`, { semester: 1 })).status === 409, 'moving an exam into the locked semester -> 409');
+    ok((await call(A, 'PUT', `/exam-schedule/${sem2Extra}`, { exam_date: await examDate(cls, 1) })).status === 409, 'moving an exam into the locked semester (new date) -> 409');
     ok((await conduct(A, 1, [{ student_id: S.top, conduct: 'B' }])).status === 409, 'conduct of the locked semester -> 409');
     ok((await conduct(A, 2, [{ student_id: S.top, conduct: 'B' }])).status === 200, 'conduct of semester 2 -> 200');
     r = await call(A, 'PUT', `/academic-years/${yr.id}`, { semester2_start: (() => { const d = new Date(`${yr.semester2_start}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 7); return d.toISOString().slice(0, 10); })() });

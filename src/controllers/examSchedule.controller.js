@@ -66,7 +66,7 @@ const getAllScheduled = async (req, res) => {
 
     const { rows } = await db.query(
       `SELECT
-         e.id, e.name, e.exam_type, e.term, e.semester,
+         e.id, e.name, e.exam_type, e.semester,
          e.exam_date, e.max_score, e.created_at,
          c.name        AS class_name,
          c.grade_level,
@@ -104,7 +104,7 @@ const getUpcoming = async (req, res) => {
 
     const { rows } = await db.query(
       `SELECT
-         e.id, e.name, e.exam_type, e.term, e.semester,
+         e.id, e.name, e.exam_type, e.semester,
          e.exam_date, e.max_score,
          c.name        AS class_name,
          c.grade_level, c.section,
@@ -144,7 +144,7 @@ const getCalendar = async (req, res) => {
 
     const { rows } = await db.query(
       `SELECT
-         e.id, e.name, e.exam_type, e.term, e.semester, e.exam_date, e.max_score,
+         e.id, e.name, e.exam_type, e.semester, e.exam_date, e.max_score,
          c.name        AS class_name,
          c.grade_level,
          s.name        AS subject_name,
@@ -194,7 +194,7 @@ const getClassExams = async (req, res) => {
 
     const { rows } = await db.query(
       `SELECT
-         e.id, e.name, e.exam_type, e.term, e.semester,
+         e.id, e.name, e.exam_type, e.semester,
          e.exam_date, e.max_score, e.created_at,
          s.name AS subject_name, s.name_am AS subject_name_am, s.code AS subject_code,
          COUNT(g.id) AS grades_entered,

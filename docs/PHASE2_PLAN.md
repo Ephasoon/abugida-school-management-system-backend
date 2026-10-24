@@ -637,6 +637,30 @@ Backend work for a milestone is merged (with tests) before its frontend part.
 | M9 | **Documents.** List, categories, upload, download (Amharic file names), delete. | |
 | M10 | **Parity and switch-over.** Print styles everywhere, a page-by-page parity checklist against `asms-frontend`, a trial by a school admin, then your sign-off (D12). Then: unlink the old frontend, archive its repo, remove `POST /grades/exams`, the `term` compatibility mappings and the kept-for-rollback columns (`exams.term`, `grades.grade_letter`, `payments.term/category/amount_due`). | cleanup migration |
 
+**Built (M10, 2026-10-24, migration 026):**
+- **Parity** with `asms-frontend`, page by page: everything is in the new app except
+  `analytics.html` (BACKLOG "Reports page"; `/api/analytics/*` kept) and `grades.html` (GPA and
+  letters, not rebuilt, D18). The missing school-wide payment list was built: **payment history**
+  (Finance → Payments; `GET /finance/payments` with `from`, `to`, `method`, `receipt`,
+  `student_id`, `academic_year_id`, `status`; totals, `by_method` and `by_day` over the whole
+  filter, valid receipts only, reversed counted apart) for the cashier's cash-up at the end of
+  the day, printable. Print styles still missing on five screens: BACKLOG.
+- **Migration 026:** drops `exams.term`, `grades.grade_letter` (2 letters in the real data; they
+  stay in the backups), `payments.term/category/amount_due/amount_paid` (every old payment was
+  checked to match its legacy charge first, else the migration stops) and
+  `fee_structures_legacy`; the semester trigger takes the date only (no term fallback). Rehearsed
+  on `asms_restore_check` from a fresh backup (`tests/check_026.js`). Rollback: the backup.
+- **Removed from the API:** `POST /grades/exams` (use `POST /exam-schedule`, which needs a date),
+  `GET /finance/unpaid` (use `/finance/outstanding`), the term payment shape
+  (`amount_due`/`amount_paid`; 400, send `allocations`), `term` in exam bodies and `?term=`
+  filters (400), the `gpa`/`grade_letter` placeholders, `grade_dist` in analytics. `term_type`
+  stays for `student_charges.legacy_term` (old term charges).
+- **Old frontend retired:** its browser suites (g5, g5b, g6) and their helpers removed, the old
+  CORS default (5500/5501) removed (`CORS_ORIGINS` empty by default), `asms-frontend` tagged
+  and archived (D12: after your sign-off).
+- **Production:** `TRUST_PROXY`, no source maps in the app build, and `docs/DEPLOYMENT.md`
+  (Ubuntu, nginx, Let's Encrypt, PostgreSQL on the same server, systemd, backups).
+
 ---
 
 ## 7. Ethiopia-specific
@@ -773,22 +797,23 @@ is pushed before.
 | What | Port | Notes |
 |---|---|---|
 | Backend (dev, real `asms`) | 3000 | unchanged |
-| Old HTML frontend | 5500 / 5501 | unchanged until M10 |
+| Old HTML frontend | 5500 / 5501 | retired in M10 |
 | **New app, dev** (`npm run dev` in `asms-web`) | **5173** | Vite proxies `/api` → `http://localhost:3000` |
 | Test backend (scratch DB) | 3100 | unchanged |
-| Old frontend tests (static) | 5599 | unchanged |
+| Old frontend tests (static) | 5599 | retired in M10 |
 | **New app, tests** (`vite preview`) | **5600** | proxy `/api` → `:3100` |
-| Edge DevTools (old browser tests) | 9333 | unchanged |
+| Edge DevTools (old browser tests) | 9333 | retired in M10 |
 
 - **No `.env` / `CORS_ORIGINS` change is needed for development.** Thanks to
   the proxy, the browser sees one origin (`localhost:5173`), and the
-  `SameSite=Strict` cookie is sent. The old frontend keeps using
-  `CORS_ORIGINS` (default 5500/5501).
+  `SameSite=Strict` cookie is sent. `CORS_ORIGINS` is empty by default since
+  M10 (the old frontend used 5500/5501).
 - Tests: only `regress.sh` gets `http://localhost:5600` added to
   `CORS_ORIGINS`.
 - **Production (D8):** one domain. The reverse proxy (e.g. nginx) serves the
   built app at `/` (with fallback to `index.html` for client routes) and
   sends `/api` to Express. No CORS needed. `VITE_API_BASE` stays `/api`.
+  Step by step: `docs/DEPLOYMENT.md`.
 - Side by side: backend 3000, old app 5500, new app 5173. Both share the
   refresh cookie on `localhost`, so logging in on one can replace the
   other's session (as today).

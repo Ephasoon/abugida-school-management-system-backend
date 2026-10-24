@@ -159,7 +159,6 @@ const getGradeAnalytics = async (req, res) => {
       }
       scoreBands[sem] = SCORE_BANDS.map((b) => ({ band: b.key, count: counts[b.key] }));
     }
-    const gradeDist = [];   // letters are gone (B2); kept empty for the old analytics page
     const { rows: topStudents } = await db.query(
       `SELECT s.first_name||' '||s.last_name AS name,
               s.student_number, c.name AS class_name,
@@ -170,7 +169,7 @@ const getGradeAnalytics = async (req, res) => {
        GROUP BY s.id, s.first_name, s.last_name, s.student_number, c.name
        ORDER BY avg_score DESC LIMIT 10`
     );
-    return sendSuccess(res, { by_subject: bySubject, score_bands: scoreBands, grade_dist: gradeDist, top_students: topStudents },
+    return sendSuccess(res, { by_subject: bySubject, score_bands: scoreBands, top_students: topStudents },
       'Grade analytics retrieved.');
   } catch (err) {
     return sendServerError(res, err, 'Server error.');

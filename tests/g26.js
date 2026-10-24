@@ -1,9 +1,9 @@
 // Phase 2 M5a (A, B1): two semesters. Migration 020 (semester2_start backfilled with Yekatit 1 of
 // the end date's Ethiopian year, exams.semester), the exam date rules (date inside the class's
-// year decides the semester; semester sent with a date must agree; without a date semester or
-// the old term is required; term mapped term1 -> 1, term2/term3 -> 2), ?semester= filters (and
-// ?term= mapped), a changed semester2_start moves dated exams (with a dry run), raw inserts get
-// a semester from the trigger. Scratch DB backend on :3100.
+// year decides the semester; semester sent with a date must agree; a date is required; the old
+// term is refused since M10, in the body and as ?term=), ?semester= filters, a changed
+// semester2_start moves dated exams (with a dry run; undated exams from before keep theirs),
+// raw inserts get a semester from the date (trigger). Scratch DB backend on :3100.
 const pool = require('./tdb');
 const { createFreeYear } = require('./years');
 const API = 'http://localhost:3100/api';
@@ -48,11 +48,14 @@ const tag = Date.now().toString(36);
   const add = (iso, n) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
   const s1Date = add(yr.start_date, 60), s2Date = add(yr.semester2_start, 20);
   const exam = (tok, extra) => call(tok, 'POST', '/exam-schedule', { class_id: cls, subject_id: G.math, name: `G26 ${tag}`, exam_type: 'quiz', max_score: 10, ...extra });
-  const oldExam = (tok, extra) => call(tok, 'POST', '/grades/exams', { class_id: cls, subject_id: G.math, name: `G26 old ${tag}`, exam_type: 'quiz', max_score: 10, ...extra });
+  // An exam without a date (possible before M10): written straight into the scratch DB
+  const undatedExam = async (semester) => (await pool.query(
+    "INSERT INTO exams (class_id, subject_id, academic_year_id, name, exam_type, semester, max_score) VALUES ($1, $2, $3, $4, 'quiz', $5, 1) RETURNING id",
+    [cls, G.math, yr.id, `G26 undated ${tag}`, semester])).rows[0].id;
 
   console.log('== Exam date rules');
   r = await exam(A, { exam_date: s1Date });
-  ok(r.status === 201 && r.body.data.semester === 'semester1' && r.body.data.term === 'term1', `dated ${s1Date} -> semester 1 (term1 stored for the old pages)`, `${r.status} ${r.body?.message}`);
+  ok(r.status === 201 && r.body.data.semester === 'semester1' && !('term' in r.body.data), `dated ${s1Date} -> semester 1 (no term)`, `${r.status} ${r.body?.message}`);
   const e1 = r.body?.data?.id;
   r = await exam(A, { exam_date: s2Date, semester: 2 });
   ok(r.status === 201 && r.body.data.semester === 'semester2', `dated ${s2Date} with semester 2 -> semester 2`);
@@ -64,20 +67,13 @@ const tag = Date.now().toString(36);
   r = await exam(A, { exam_date: '2026-02-30' });
   ok(r.status === 400, 'impossible date -> 400');
   r = await exam(A, { exam_date: s2Date, term: 'term1' });
-  ok(r.status === 201 && r.body.data.semester === 'semester2', 'old frontend: term1 with a semester-2 date -> the date decides (semester 2)');
+  ok(r.status === 400 && r.body?.errors?.field === 'term', 'the old term -> 400 (M10)', r.body?.message);
   r = await exam(A, { semester: 'third', exam_date: s1Date });
   ok(r.status === 400, 'semester "third" -> 400');
-  r = await oldExam(A, {});
-  ok(r.status === 400 && /semester \(1 or 2\) is required/.test(r.body?.message), 'no date, no semester, no term -> 400', r.body?.message);
-  r = await oldExam(A, { semester: 2 });
-  ok(r.status === 201 && r.body.data.semester === 'semester2', 'no date, semester 2 -> 201', `${r.status} ${r.body?.message}`);
-  r = await oldExam(A, { term: 'term3' });
-  const t3 = r.body?.data;
-  ok(r.status === 201 && t3?.semester === 'semester2' && t3?.term === 'term3', 'old frontend: no date, term3 -> semester 2 (term3 kept)', `${r.status}`);
-  r = await oldExam(A, { term: 'term1', semester: 2 });
-  ok(r.status === 400, 'term1 with semester 2, no date -> 400');
-  r = await oldExam(A, { term: 'annual' });
-  ok(r.status === 400, 'bad term -> 400');
+  r = await exam(A, { semester: 2 });
+  ok(r.status === 400 && /exam_date/.test(r.body?.message), 'no date (semester 2 only) -> 400: a date is required', r.body?.message);
+  ok((await call(A, 'POST', '/grades/exams', { class_id: cls, subject_id: G.math, name: 'x', exam_type: 'quiz', semester: 2 })).status === 404, 'POST /grades/exams is gone (M10) -> 404');
+  await undatedExam('semester2'); await undatedExam('semester1');
   r = await exam(TA, { exam_date: s1Date });
   ok(r.status === 201 && r.body.data.semester === 'semester1' && r.body.data.academic_year_id === yr.id, "teacher: own class; the exam's year is the class's year (not the current one)");
 
@@ -85,7 +81,7 @@ const tag = Date.now().toString(36);
   r = await call(A, 'GET', `/exam-schedule/class/${cls}?semester=2`);
   ok(r.status === 200 && r.body.data.length > 0 && r.body.data.every((e) => e.semester === 'semester2'), '?semester=2 -> only semester 2', `${r.body?.data?.length}`);
   r = await call(A, 'GET', `/exam-schedule/class/${cls}?term=term3`);
-  ok(r.status === 200 && r.body.data.every((e) => e.semester === 'semester2'), 'old ?term=term3 -> semester 2');
+  ok(r.status === 400, 'old ?term= -> 400 (M10)');
   ok((await call(A, 'GET', `/exam-schedule/class/${cls}?semester=3`)).status === 400, '?semester=3 -> 400');
   r = await call(A, 'GET', `/grades/exams?class_id=${cls}&semester=1`);
   ok(r.status === 200 && r.body.data.length > 0 && r.body.data.every((e) => e.semester === 'semester1'), 'GET /grades/exams?semester=1');
@@ -94,7 +90,7 @@ const tag = Date.now().toString(36);
 
   console.log('== Editing an exam');
   r = await call(A, 'PUT', `/exam-schedule/${e1}`, { exam_date: s2Date });
-  ok(r.status === 200 && r.body.data.semester === 'semester2' && r.body.data.term === 'term2', 'new date in semester 2 -> moves to semester 2');
+  ok(r.status === 200 && r.body.data.semester === 'semester2', 'new date in semester 2 -> moves to semester 2');
   r = await call(A, 'PUT', `/exam-schedule/${e1}`, { semester: 1 });
   ok(r.status === 400, 'semester 1 for an exam dated in semester 2 -> 400');
   r = await call(A, 'PUT', `/exam-schedule/${e1}`, { exam_date: add(yr.start_date, -30) });
@@ -120,15 +116,15 @@ const tag = Date.now().toString(36);
   r = await call(A, 'PUT', `/academic-years/${yr.id}`, { semester2_start: `${Y}-09-01` });
   ok(r.status === 400, 'semester2_start on the first day -> 400');
 
-  console.log('== Raw inserts (old code paths) get a semester');
+  console.log('== Raw inserts get a semester from the date (migration 026: no term fallback)');
   const raw = (await pool.query(
-    "INSERT INTO exams (class_id, subject_id, academic_year_id, name, exam_type, term, exam_date) VALUES ($1, $2, $3, 'G26 raw', 'quiz', 'term1', $4) RETURNING semester::text",
+    "INSERT INTO exams (class_id, subject_id, academic_year_id, name, exam_type, exam_date, max_score) VALUES ($1, $2, $3, 'G26 raw', 'quiz', $4, 1) RETURNING semester::text",
     [cls, G.math, yr.id, add(yr.semester2_start, 70)])).rows[0].semester;
-  ok(raw === 'semester2', 'term1 dated in semester 2 -> the trigger takes the date');
-  const raw2 = (await pool.query(
-    "INSERT INTO exams (class_id, subject_id, academic_year_id, name, exam_type, term) VALUES ($1, $2, $3, 'G26 raw2', 'quiz', 'term2') RETURNING semester::text",
-    [cls, G.math, yr.id])).rows[0].semester;
-  ok(raw2 === 'semester2', 'term2 without a date -> semester 2');
+  ok(raw === 'semester2', 'dated in semester 2 -> the trigger takes the date');
+  let refused = null;
+  try { await pool.query("INSERT INTO exams (class_id, subject_id, academic_year_id, name, exam_type, max_score) VALUES ($1, $2, $3, 'G26 raw2', 'quiz', 1)", [cls, G.math, yr.id]); } catch (e) { refused = e.code; }
+  ok(refused === '23502', 'no date and no semester -> refused (NOT NULL)', String(refused));
+  ok(!(await pool.query("SELECT 1 FROM information_schema.columns WHERE table_name = 'exams' AND column_name = 'term'")).rows.length, 'exams.term is gone (026)');
   } finally {
     // Teacher A's classes are checked by g7 and g9: no assignment left behind, even after a crash
     await call(A, 'DELETE', `/teachers/${G.tA.tid}/classes/${cls}/${G.math}`);

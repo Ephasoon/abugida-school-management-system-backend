@@ -1,8 +1,7 @@
 // src/services/exam.service.js
 // ============================================================
 // The single way an exam is created or changed. Used by:
-//   POST /api/exam-schedule  (preferred: date required, schedule details)
-//   POST /api/grades/exams   (deprecated alias: date optional)
+//   POST /api/exam-schedule  (date required, schedule details)
 //   PUT  /api/exam-schedule/:id (admin)
 //
 // Max scores (D25): one subject's assessments in one class and semester add up to at most 100.
@@ -11,7 +10,7 @@
 //
 // Semester (B1): an exam with a date gets the semester of that date, which must lie inside
 // its class's academic year; `semester` sent with a date must agree with it. Without a date,
-// `semester` (1|2) or the old `term` (mapped) is required. The exam's year is its class's.
+// `semester` (1|2) is required (the old `term` is refused). The exam's year is its class's.
 //
 // Rule (docs/PERMISSIONS.md, "Exams/grades enter"):
 //   admin   → any class
@@ -21,7 +20,7 @@
 
 const db = require('../config/db');
 const { validateMaxScore } = require('../utils/examRules');
-const { TERMS, TERM_TO_SEMESTER, SEMESTER_TO_TERM, parseSemester, semesterOfDate, semesterNumber } = require('../utils/semesters');
+const { TERM_GONE, parseSemester, semesterOfDate, semesterNumber } = require('../utils/semesters');
 const { isIsoDate } = require('../utils/attendance');
 const { inTransaction } = require('../utils/transaction');
 const { LockedError, assertSemesterUnlocked } = require('./locks.service');
@@ -38,16 +37,13 @@ const loadClassYear = async (q, classId) => (await q.query(
    FROM classes c JOIN academic_years y ON y.id = c.academic_year_id WHERE c.id::text = $1`, [String(classId)])).rows[0] || null;
 
 /**
- * The semester (and the term stored with it) for an exam of a class in `year`.
- * { semester, term, exam_date } as sent; returns { semester, term } or throws ExamError (400).
+ * The semester for an exam of a class in `year`.
+ * { semester, term, exam_date } as sent; returns { semester } or throws ExamError (400).
  */
 const decideSemester = (year, { semester, term, exam_date }) => {
+  if (term !== undefined && term !== null && term !== '') throw new ExamError(400, TERM_GONE, { field: 'term' });
   const sent = parseSemester(semester);
   if (sent === null) throw new ExamError(400, 'semester must be 1 or 2.', { field: 'semester' });
-  if (term !== undefined && term !== null && !TERMS.includes(term)) {
-    throw new ExamError(400, `term must be: ${TERMS.join(', ')} (or send semester: 1 or 2).`, { field: 'term' });
-  }
-  const storedTerm = (s) => (term && TERM_TO_SEMESTER[term] === s ? term : SEMESTER_TO_TERM[s]);
   if (exam_date) {
     if (!isIsoDate(exam_date)) throw new ExamError(400, 'exam_date must be a real date in YYYY-MM-DD format.', { field: 'exam_date' });
     const byDate = semesterOfDate(year, exam_date);
@@ -57,13 +53,9 @@ const decideSemester = (year, { semester, term, exam_date }) => {
     if (sent && sent !== byDate) {
       throw new ExamError(400, `${exam_date} is in semester ${semesterNumber(byDate)} of ${year.year_name} (semester 2 starts ${year.semester2_start}), but semester ${semesterNumber(sent)} was sent.`, { field: 'semester' });
     }
-    return { semester: byDate, term: storedTerm(byDate) };     // the old term is not checked against the date
+    return { semester: byDate };
   }
-  if (sent) {
-    if (term && TERM_TO_SEMESTER[term] !== sent) throw new ExamError(400, `term ${term} does not match semester ${semesterNumber(sent)}.`, { field: 'term' });
-    return { semester: sent, term: storedTerm(sent) };
-  }
-  if (term) return { semester: TERM_TO_SEMESTER[term], term };
+  if (sent) return { semester: sent };
   throw new ExamError(400, 'semester (1 or 2) is required for an exam without a date.', { field: 'semester' });
 };
 
@@ -99,7 +91,7 @@ const assertMaxTotal = async (client, { cls, subjectId, subjectName, semester, m
 
 /**
  * createExam(user, input, { requireDate })
- * input: { class_id, subject_id, name, exam_type, semester? | term?, max_score?, exam_date?,
+ * input: { class_id, subject_id, name, exam_type, semester?, max_score?, exam_date?,
  *          start_time?, end_time?, room?, instructions? }
  * Returns { exam, schedule, className, subjectName }; throws ExamError on invalid input.
  */
@@ -159,9 +151,9 @@ const createExam = async (user, input, { requireDate = false } = {}) => {
     await assertMaxTotal(client, { cls, subjectId: sub[0].id, subjectName: sub[0].name, semester: sem.semester, maxScore: max_score });
     const { rows: exam } = await client.query(
       `INSERT INTO exams
-         (class_id, subject_id, academic_year_id, name, exam_type, term, semester, max_score, exam_date, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-      [cls.id, sub[0].id, cls.academic_year_id, String(name).trim(), exam_type, sem.term, sem.semester,
+         (class_id, subject_id, academic_year_id, name, exam_type, semester, max_score, exam_date, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [cls.id, sub[0].id, cls.academic_year_id, String(name).trim(), exam_type, sem.semester,
        parseFloat(max_score), exam_date || null, createdBy]);
 
     let schedule = null;
@@ -183,7 +175,7 @@ const createExam = async (user, input, { requireDate = false } = {}) => {
 
 /**
  * updateExam(id, input): PUT /exam-schedule/:id (admin).
- * input: { name?, exam_type?, exam_date?, semester? | term?, max_score? }
+ * input: { name?, exam_type?, exam_date?, semester?, max_score? }
  * A new date or semester is checked like on create. Returns the exam row.
  */
 const updateExam = async (id, input) => {
@@ -196,7 +188,7 @@ const updateExam = async (id, input) => {
   const { rows: cur } = await db.query('SELECT * FROM exams WHERE id::text = $1', [String(id)]);
   if (!cur[0]) throw new ExamError(404, 'Exam not found.');
   const cls = await loadClassYear(db, cur[0].class_id);
-  let sem = { semester: cur[0].semester, term: cur[0].term };
+  let sem = { semester: cur[0].semester };
   if (exam_date !== undefined || semester !== undefined || term !== undefined) {
     sem = decideSemester(cls, { semester, term, exam_date: exam_date ?? cur[0].exam_date });
   }
@@ -214,13 +206,12 @@ const updateExam = async (id, input) => {
          name      = COALESCE($1, name),
          exam_date = COALESCE($2, exam_date),
          exam_type = COALESCE($3, exam_type),
-         term      = $4,
-         semester  = $5,
-         max_score = COALESCE($6, max_score)
-       WHERE id = $7 RETURNING *`,
-      [name === undefined ? null : String(name).trim(), exam_date ?? null, exam_type ?? null, sem.term, sem.semester, max_score ?? null, cur[0].id]);
+         semester  = $4,
+         max_score = COALESCE($5, max_score)
+       WHERE id = $6 RETURNING *`,
+      [name === undefined ? null : String(name).trim(), exam_date ?? null, exam_type ?? null, sem.semester, max_score ?? null, cur[0].id]);
     return rows[0];
   });
 };
 
-module.exports = { createExam, updateExam, decideSemester, loadClassYear, assertMaxTotal, assertUnlocked, ExamError, EXAM_TYPES, TERMS };
+module.exports = { createExam, updateExam, decideSemester, loadClassYear, assertMaxTotal, assertUnlocked, ExamError, EXAM_TYPES };

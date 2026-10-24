@@ -6,6 +6,7 @@
 // G1 (one exam + its scores), the report card wrapper (no GPA / letters), settings (audited),
 // analytics score bands (D18), scoping. Scratch DB backend on :3100.
 const pool = require('./tdb');
+const { newExam } = require('./exams');
 const { createFreeYear } = require('./years');
 const API = 'http://localhost:3100/api';
 let pass = 0, fail = 0;
@@ -36,7 +37,7 @@ const tag = Date.now().toString(36);
     const stu = async (first) => (await call(A, 'POST', '/students', { first_name: first, last_name: `G27${tag}`, gender: 'female', class_id: cls })).body.data.id;
     const S = {};
     for (const n of ['abe', 'bet', 'chu', 'dan', 'eli', 'fay']) S[n] = await stu(n[0].toUpperCase() + n.slice(1));
-    const exam = async (subject, name, max, semester, class_id = cls) => call(A, 'POST', '/grades/exams',
+    const exam = async (subject, name, max, semester, class_id = cls) => newExam(call, A,
       { class_id, subject_id: subject, name: `${name} ${tag}`, exam_type: 'quiz', max_score: max, semester });
     const E = {};
     for (const sem of [1, 2]) {
@@ -57,7 +58,7 @@ const tag = Date.now().toString(36);
     await enter(E.m2b, [['abe', 48], ['bet', 54], ['chu', 42], ['dan', 24], ['eli', 36]]);
     await enter(E.e2a, [['abe', 40], ['bet', 45], ['chu', 35], ['dan', 20], ['eli', 30]]);
     await enter(E.e2b, [['abe', 40], ['bet', 45], ['chu', 35], ['dan', 20], ['eli', 30]]);
-    ok((await pool.query('SELECT COUNT(*)::int n FROM grades WHERE exam_id = ANY($1) AND grade_letter IS NOT NULL', [Object.values(E)])).rows[0].n === 0, 'no letters stored (021)');
+    ok(!(await pool.query("SELECT 1 FROM information_schema.columns WHERE table_name = 'grades' AND column_name = 'grade_letter'")).rows.length, 'no letters: grades.grade_letter is gone (026)');
 
     console.log('== Semester 1: totals, averages, ranks 1, 2, 2, 4');
     r = await call(A, 'GET', `/results/class/${cls}?semester=1`);
@@ -110,7 +111,7 @@ const tag = Date.now().toString(36);
     ok(me.year.promotion?.status === 'promoted' && me.settings.pass_yearly_average === 50, 'promotion: promoted (pass mark 50)');
     r = await call(A, 'GET', `/grades/report-card/${S.abe}?semester=1&academic_year_id=${yr.id}`);
     const rc = r.body?.data;
-    ok(r.status === 200 && rc.academic_summary.gpa === '—' && rc.academic_summary.rank === 1 && rc.academic_summary.total_in_class === 4 && rc.subjects.every((x) => x.grade_letter === '—'), 'report card: same rank as the results, no GPA or letters');
+    ok(r.status === 200 && !('gpa' in rc.academic_summary) && rc.academic_summary.rank === 1 && rc.academic_summary.total_in_class === 4 && rc.subjects.every((x) => !('grade_letter' in x)), 'report card: same rank as the results, no GPA or letters (M10: not even placeholders)');
     ok(rc.subjects.find((x) => x.subject_id === undefined && x.score === 90) !== undefined, 'report card subject scores out of 100');
     r = await call(A, 'GET', `/grades/report-card/${S.abe}?academic_year_id=${yr.id}`);
     ok(r.body?.data?.academic_summary?.result === 'Promoted', 'report card for the year: "Promoted"');
@@ -152,7 +153,7 @@ const tag = Date.now().toString(36);
 
     console.log('== Analytics score bands');
     r = await call(A, 'GET', '/analytics/grades');
-    ok(r.status === 200 && r.body.data.score_bands.semester1.map((b) => b.band).join() === '90-100,80-89,70-79,60-69,50-59,below-50' && Array.isArray(r.body.data.grade_dist), 'score bands per semester (D18); letters list empty');
+    ok(r.status === 200 && r.body.data.score_bands.semester1.map((b) => b.band).join() === '90-100,80-89,70-79,60-69,50-59,below-50' && !('grade_dist' in r.body.data), 'score bands per semester (D18); no letters list (M10)');
 
     for (const id of Object.values(S)) await call(A, 'DELETE', `/students/${id}`);
   } finally {

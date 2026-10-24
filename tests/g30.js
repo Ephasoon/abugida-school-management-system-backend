@@ -4,6 +4,7 @@
 // Also: `locked` on GET /grades/exams/:id, the year's dates on GET /classes.
 // Scratch DB backend on :3100.
 const pool = require('./tdb');
+const { newExam } = require('./exams');
 const { createFreeYear } = require('./years');
 const API = 'http://localhost:3100/api';
 let pass = 0, fail = 0;
@@ -30,7 +31,7 @@ const tag = Date.now().toString(36);
   try {
     const stu = async (first) => (await call(A, 'POST', '/students', { first_name: first, last_name: `G30${tag}`, gender: 'female', class_id: cls })).body.data.id;
     const S = { a: await stu('Abeba'), b: await stu('Bethel') };
-    const exam = (await call(A, 'POST', '/grades/exams', { class_id: cls, subject_id: G.eng, name: `English ${tag}`, exam_type: 'final', max_score: 100, semester: 1 })).body.data.id;
+    const exam = (await newExam(call, A, { class_id: cls, subject_id: G.eng, name: `English ${tag}`, exam_type: 'final', max_score: 100, semester: 1 })).body.data.id;
     const save = (tok, grades) => call(tok, 'POST', '/grades', { exam_id: exam, grades });
     const scores = async () => Object.fromEntries((await call(A, 'GET', `/grades/exams/${exam}`)).body.data.grades.map((g) => [g.student_id, Number(g.score)]));
     await save(A, [{ student_id: S.a, score: 80 }, { student_id: S.b, score: 60 }]);

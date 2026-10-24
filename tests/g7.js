@@ -25,8 +25,8 @@ const check = (cond, label, extra = '') => { if (cond) pass++; else { fail++; fa
   await pool.query("UPDATE users SET is_active = TRUE, must_change_password = FALSE WHERE email = ANY($1)", [[G.tA.email, G.tB.email]]);
   const ay = (await pool.query('SELECT id FROM academic_years WHERE is_current')).rows[0].id;
   const exam = async (cls, name) => (await pool.query(
-    `INSERT INTO exams (class_id, subject_id, academic_year_id, name, exam_type, term, exam_date, max_score)
-     VALUES ($1, $2, $3, $4, 'quiz', 'term1', CURRENT_DATE + 10, 1) RETURNING id`, [cls, G.math, ay, name])).rows[0].id;
+    `INSERT INTO exams (class_id, subject_id, academic_year_id, name, exam_type, semester, exam_date, max_score)
+     VALUES ($1, $2, $3, $4, 'quiz', 'semester1', CURRENT_DATE + 10, 1) RETURNING id`, [cls, G.math, ay, name])).rows[0].id;
   await exam(G.c9A, 'G7 9A quiz'); await exam(G.c9B, 'G7 9B quiz');
   const assigned = (await pool.query(`SELECT COUNT(*)::int n FROM teacher_classes WHERE teacher_id = $1`, [G.tA.tid])).rows[0].n;
   console.log(`[g7] teacher A assignments: ${assigned} (expected 9A Math) | teacher B: ${(await pool.query('SELECT COUNT(*)::int n FROM teacher_classes WHERE teacher_id=$1', [G.tB.tid])).rows[0].n}`);
@@ -74,7 +74,7 @@ const check = (cond, label, extra = '') => { if (cond) pass++; else { fail++; fa
     ['GET', `/attendance/${C9B}/2026-10-05`, null, { tA: no, principal: ok }],
     // Grades & report cards
     ['GET', '/grades/exams', null, { admin: ok, principal: ok, tA: ok, tB: ok, student: no, parent: no }],
-    ['POST', '/grades/exams', { class_id: C9A, subject_id: G.math, name: 'p', exam_type: 'quiz', term: 'term1', max_score: 1 }, { principal: no, student: no }],
+    ['POST', '/exam-schedule', { class_id: C9A, subject_id: G.math, name: 'p', exam_type: 'quiz', exam_date: '2024-11-15', max_score: 1 }, { principal: no, student: no }],
     ['GET', `/grades/report-card/${S1}`, null, { admin: ok, principal: ok, tA: ok, tB: no, student: ok, parent: ok }],
     ['GET', `/grades/report-card/${S3}`, null, { tA: no, student: no, parent: no }],
     // PDFs
@@ -84,9 +84,8 @@ const check = (cond, label, extra = '') => { if (cond) pass++; else { fail++; fa
     // Finance
     ['GET', '/finance/summary', null, { admin: ok, principal: ok, tA: no, student: no, parent: no }],
     ['GET', '/finance/payments', null, { principal: ok, tA: no }],
-    ['GET', '/finance/unpaid', null, { principal: ok, tA: no }],
     ['GET', `/finance/student/${S1}`, null, { principal: ok, tA: no, parent: no }],
-    ['POST', '/finance/payments', { student_id: S1, amount_due: 1, amount_paid: 1, payment_method: 'cash', payment_date: '2026-10-08' }, { principal: no, tA: no }],
+    ['POST', '/finance/payments', { student_id: S1, allocations: [{ charge_id: '00000000-0000-4000-8000-000000000000', amount: 1 }], payment_method: 'cash', payment_date: '2026-10-08' }, { principal: no, tA: no }],
     // Parent portal
     ['GET', '/parent/children', null, { parent: ok, admin: no, principal: no, tA: no }],
     ['GET', `/parent/child/${S1}/timetable`, null, { parent: 404 /* class has no slots -> 404 'No class assigned'? */ }],
@@ -106,7 +105,7 @@ const check = (cond, label, extra = '') => { if (cond) pass++; else { fail++; fa
     ['GET', '/exam-schedule/calendar', null, { principal: ok, tA: ok, student: ok }],
     ['GET', `/exam-schedule/class/${C9A}`, null, { tA: ok, tB: no, student: ok, parent: ok }],
     ['GET', `/exam-schedule/class/${C9B}`, null, { tA: no, student: no, parent: no, principal: ok }],
-    ['POST', '/exam-schedule', { class_id: C9A, subject_id: G.math, name: 'p', exam_type: 'quiz', term: 'term1', exam_date: '2025-03-12', max_score: 1 }, { principal: no, tA: created, tB: no, student: no }],   // own class+subject (Phase 1 addition)
+    ['POST', '/exam-schedule', { class_id: C9A, subject_id: G.math, name: 'p', exam_type: 'quiz', exam_date: '2025-03-12', max_score: 1 }, { principal: no, tA: created, tB: no, student: no }],   // own class+subject (Phase 1 addition)
     // Documents
     ['GET', '/documents', null, { admin: ok, principal: ok, tA: ok, student: no, parent: no }],
     ['GET', '/documents/categories', null, { principal: ok, student: no }],

@@ -5,6 +5,7 @@
 // phone or email in any of those responses. A child without a class: results 200 with an empty
 // result (no 404), still 403 for another family and 404 for an unknown student. Scratch DB backend on :3100.
 const pool = require('./tdb');
+const { newExam } = require('./exams');
 const API = 'http://localhost:3100/api';
 let pass = 0, fail = 0;
 const ok = (c, m, x = '') => { c ? pass++ : fail++; console.log(`  ${c ? 'PASS' : 'FAIL'}  ${m}${x ? '  ' + x : ''}`); };
@@ -45,7 +46,7 @@ const tag = Date.now().toString(36);
   const tA = (await call(A, 'GET', `/teachers/${G.tA.tid}`)).body.data;
   const phone = `09${tag.slice(-8).replace(/\D/g, '7').padStart(8, '7')}`;
   await call(A, 'PUT', `/teachers/${G.tA.tid}`, { phone });
-  const exam = (await call(A, 'POST', '/grades/exams', { class_id: G.c9A, subject_id: G.math, name: `G32 ${tag}`, exam_type: 'quiz', max_score: 1, semester: 1 })).body.data?.id;
+  const exam = (await newExam(call, A, { class_id: G.c9A, subject_id: G.math, name: `G32 ${tag}`, exam_type: 'quiz', max_score: 1, semester: 1 })).body.data?.id;
   await call(A, 'POST', '/grades', { exam_id: exam, grades: [{ student_id: kidist, score: 1 }] });
   try {
     console.log('== GET /parent/children');

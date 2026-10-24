@@ -442,10 +442,9 @@ const getStudentSummary = async (req, res) => {
     // Recent grades (last 5)
     const { rows: gradeRows } = await db.query(
       `SELECT
-         g.score, NULL::text AS grade_letter,
+         g.score,
          sub.name  AS subject,
          e.name    AS exam_name,
-         e.term,
          e.semester,
          e.exam_date
        FROM grades g
