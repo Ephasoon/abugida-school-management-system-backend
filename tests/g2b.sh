@@ -39,10 +39,11 @@ OLD=$(node -e "require('$WS/../node_modules/dotenv').config({path:'$WS/../.env'}
 ok "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/auth/refresh -b "refreshToken=$OLD")" 401 "legacy refresh token"
 
 echo "== CORS"
-hdr(){ curl -s -D - -o /dev/null -H "Origin: $1" http://localhost:3100/health | tr -d '\r' | grep -i '^access-control-allow-origin' || echo "(no ACAO header)"; }
-echo "  Origin: null                  -> $(hdr null)"
-echo "  Origin: http://localhost:5500 -> $(hdr http://localhost:5500)"
-echo "  Origin: http://evil.example   -> $(hdr http://evil.example)"
+hdr(){ curl -s -D - -o /dev/null -H "Origin: $1" http://localhost:3100/health | tr -d '\r' | tr 'A-Z' 'a-z' | grep '^access-control-allow-origin' || echo "(no ACAO header)"; }
+ok "$(hdr null)" "(no ACAO header)" "Origin null refused"
+ok "$(hdr http://localhost:5600)" "access-control-allow-origin: http://localhost:5600" "Origin in CORS_ORIGINS allowed"
+ok "$(hdr http://localhost:5500)" "(no ACAO header)" "old frontend origin (5500) no longer allowed"
+ok "$(hdr http://evil.example)" "(no ACAO header)" "other origin refused"
 
 echo "== Login rate limit (5 failures / 15 min per IP+email)"
 for i in 1 2 3 4 5; do printf "  bad attempt $i -> %s\n" $(code "$(req POST /auth/login "" '{"email":"admin@asms.et","password":"wrong"}')"); done

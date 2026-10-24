@@ -52,7 +52,7 @@ This is the source of truth for who may do what. Every API route must match it.
 | 3 | Internal staff notes | Hidden from students and parents (`notes` is removed from their student records) | ✅ (no change needed) |
 | 4 | Finance "Outstanding" | Sum of per-student debts (`total_outstanding`), plus `total_credit` (overpayments) and `net_balance` (due − paid). Since M8 over charges: outstanding = owed **now** (charges due by today, plus legacy and one-time charges without a date); `total_upcoming` = months not yet due (charged up front); net = expected − collected = outstanding − credit + upcoming. Credit comes only from migrated term payments: new payments above what is open are refused | ✅ |
 | 5 | Graduated students | Their login is disabled; admins issue transcripts and report cards on request | ✅ (no change needed) |
-| 6 | Exam dates | `exam_date` is always required (for assignments it is the due date). `POST /api/exam-schedule` is the exam-creation endpoint; `POST /api/grades/exams` is deprecated | ✅ (no change needed) |
+| 6 | Exam dates | `exam_date` is always required (for assignments it is the due date). `POST /api/exam-schedule` is the exam-creation endpoint; `POST /api/grades/exams` was deprecated and is removed since M10 | ✅ (no change needed) |
 
 ---
 
@@ -113,12 +113,22 @@ Now (Phase 1 + M4, tested in g13 and g24):
 | `POST /charges` (manual, with a description), `POST /charges/:id/waive` (reason) | admin (audited) |
 | `GET /discounts` | admin, principal |
 | `POST /discounts`, `PUT /discounts/:id`, `DELETE /discounts/:id` | admin (audited, before and after). Recalculate unpaid amounts only; never below what is paid |
-| `POST /payments` | admin (audited). `allocations: [{ charge_id, amount }]`, one student and year, no overpayment (409), reference required except cash. Receipt `RCP-<E.C. year>-00001`, sequential without gaps. The old term shape still works (no overpayment either) |
-| `GET /payments`, `GET /payments/:id` (receipt) | admin, principal |
+| `POST /payments` | admin (audited). `allocations: [{ charge_id, amount }]`, one student and year, no overpayment (409), reference required except cash. Receipt `RCP-<E.C. year>-00001`, sequential without gaps. The old term shape (`amount_due`/`amount_paid`) is refused since M10 (400) |
+| `GET /payments?from=&to=&method=&receipt=&student_id=&academic_year_id=&status=` (payment history, M10) | admin, principal. Totals, `by_method` and `by_day` over the whole filter (valid receipts; reversed apart) |
+| `GET /payments/:id` (receipt) | admin, principal |
 | `POST /payments/:id/reverse` (reason) | admin (audited). No deletion of payments; a reversed receipt keeps its number |
-| `GET /summary`, `/outstanding`, `/student/:studentId`, `/unpaid` | admin, principal |
+| `GET /summary`, `/outstanding`, `/student/:studentId` | admin, principal. (`/unpaid` removed in M10: `/outstanding`) |
 | `GET /pdf/receipt/:paymentId` (G5) | admin, principal, parent (own children; 403 otherwise) |
 | `GET /parent/fees`, `/parent/child/:id/fees` | parent (own children): monthly view (D21) |
+
+### Removed in M10 (switch-over)
+| Route or input | Instead |
+|---|---|
+| `POST /grades/exams` | `POST /exam-schedule` (needs `exam_date`); `GET /grades/exams` stays |
+| `GET /finance/unpaid` | `GET /finance/outstanding` |
+| `POST /finance/payments` with `amount_due`/`amount_paid`/`term`/`category` | `allocations: [{ charge_id, amount }]` (400 otherwise) |
+| `term` in exam bodies, `?term=` on exams, report cards, PDFs and payments | `semester` (400 otherwise) |
+| `gpa`, `grade_letter` in report cards and parent views; `grade_dist` in analytics | — (no GPA or letters, D18) |
 
 ### `/api/documents` (M9)
 | Route | Access |

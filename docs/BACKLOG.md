@@ -2,14 +2,30 @@
 
 Items agreed but not yet scheduled. Newest first.
 
+## Reports page
+
+*Added 2026-10-24 · asms-web · not started (M10: the old analytics.html is not rebuilt)*
+
+A reports page for admin and principal, on the existing `/api/analytics/*` endpoints (kept in
+M10): enrolment, attendance trends, most absent students, subject averages, finance by month.
+
+## Print styles for more screens
+
+*Added 2026-10-24 · asms-web · not started*
+
+Print styles (`src/styles/print.css`, as the receipt, result sheet, timetable, attendance
+report, outstanding list and payment history have) for: the report card view, the student list,
+the class list, the student profile and the documents list. Until then the browser prints the
+screen as it is (sidebar included).
+
 ## Flaky tests
 
-*Added 2026-10-24 · backend tests · not started*
+*Added 2026-10-24 · backend tests · partly done (M10)*
 
-Fix or retire with M10 (the old frontend retires then):
-- g5b: "showTab is not defined" (cause not yet looked into).
 - g22: audit entry order ("create and edits audited" saw class.updated before class.created).
-- g5, g6, g9 (old frontend): pages wait for Google Fonts and time out when they cannot load.
+  Still open.
+- Done in M10: g5, g5b and g6 (old frontend, including "showTab is not defined" and the Google
+  Fonts timeouts) were retired with the old frontend; g9's browser check was removed.
 
 ## Parents see shared documents of their own children
 

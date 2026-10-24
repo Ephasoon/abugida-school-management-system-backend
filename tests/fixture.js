@@ -6,8 +6,8 @@ const pool = require('./tdb');
   const ay  = (await pool.query("select id from academic_years where is_current")).rows[0].id;
   const st  = (await pool.query(`insert into students (student_number,first_name,last_name,gender,class_id)
      values ('T-001','Abebe','Kebede','male',$1) returning id`, [cls])).rows[0].id;
-  for (const [t, sc] of [['term1', 80], ['term2', 60]]) {
-    const ex = (await pool.query(`insert into exams (class_id,subject_id,academic_year_id,name,exam_type,term)
+  for (const [t, sc] of [['semester1', 80], ['semester2', 60]]) {
+    const ex = (await pool.query(`insert into exams (class_id,subject_id,academic_year_id,name,exam_type,semester)
        values ($1,$2,$3,$4,'midterm',$5) returning id`, [cls, sub, ay, 'Mid '+t, t])).rows[0].id;
     await pool.query('insert into grades (student_id,exam_id,score) values ($1,$2,$3)', [st, ex, sc]);
   }

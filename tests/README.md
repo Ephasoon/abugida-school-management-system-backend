@@ -2,8 +2,8 @@
 
 End-to-end suites from Phase 0 and Phase 1. They start the backend on port
 **3100** against the scratch database **`asms_phase0_test`** and call the real
-API. The browser suites also serve `asms-frontend` on port **5599** and drive
-headless Edge.
+API. w2 drives headless Edge against the new app. (The old `asms-frontend`
+browser suites g5, g5b and g6 were retired in M10.)
 
 ## Safety: scratch database only
 
@@ -20,14 +20,12 @@ write the real `asms` database. Do not remove these guards.
   fixtures loaded, and the admin password `Admin@1234`.
 - `.env` in the backend root. Only its credentials are used; `DB_NAME` is
   always overridden.
-- `asms-frontend` checked out next to this repo (`../asms-frontend`), or set
-  `FRONTEND_DIR`.
-- Microsoft Edge for the browser suites (g5, g5b, g6, g9, w2). Set `EDGE_PATH` if
+- Microsoft Edge for w2. Set `EDGE_PATH` if
   it isn't in the default location.
 - For w1 and w2: the new React app `asms-web` next to this repo (`../asms-web`,
   with `npm install` done), or set `WEB_DIR`. If it is missing, w1 and w2 are
   reported as SKIP and do not fail the run.
-- Ports 3100, 5599, 5600 and 9333 free. The runner stops with a message if any
+- Ports 3100 and 5600 free. The runner stops with a message if any
   is in use. The live server on 3000 and the dev app on 5173 are not touched.
 
 ## Run
@@ -51,11 +49,11 @@ cmd.exe is usually WSL's. Set `GIT_BASH` if Git is installed somewhere unusual.
 | g2 | Phase 0 Group 2: login, 15-minute token, refresh and logout, temporary passwords, must-change-password, immediate deactivation |
 | g2b | Phase 0 Group 2: archive, suspension and graduation cut off student logins; old refresh tokens rejected; CORS; login rate limit |
 | g3 | Phase 0 Group 3: student/parent record access, finance admin-only, private documents, grade writes limited to assignments, generic 500s with logged error id |
-| g4 | Phase 0 Group 4: exam schedules, finance categories, number sequences, score limits, Amharic download names, dates as YYYY-MM-DD |
+| g4 | Phase 0 Group 4: exam schedules, the old payment shape refused (M10), number sequences, score limits, Amharic download names, dates as YYYY-MM-DD |
 | g4b | Teacher assignments: assign, list, remove |
-| g5 | Phase 0 Group 5 (browser): page smoke test, XSS escaping, assignment screen, one-time password, must-change redirect, refresh-on-401, logout, 127.0.0.1 origin |
-| g5b | Parent portal (browser) |
-| g6 | Phase 0 follow-ups (browser): parent portal on `api.js`, downloads, finance UI hidden from teachers, attendance card |
+| ~~g5~~ | Retired in M10 (old frontend). Was: Phase 0 Group 5 (browser): page smoke test, XSS escaping, assignment screen, one-time password, must-change redirect, refresh-on-401, logout, 127.0.0.1 origin |
+| ~~g5b~~ | Retired in M10 (old frontend). Was: parent portal (browser) |
+| ~~g6~~ | Retired in M10 (old frontend). Was: Phase 0 follow-ups (browser): parent portal on `api.js`, downloads, finance UI hidden from teachers, attendance card |
 | g7 | Phase 1 Group B: role × endpoint matrix, list scoping |
 | g8 | Phase 1 Group C: school-created accounts |
 | g9 | Phase 1 Group D: finance outstanding, parent fees, teacher dashboard: classes, grading to do, upcoming exams and today's timetable of the current year only (in its own class 9E of a year containing today, made current while it runs; 2024/2025 put back and the assignment, timetable slot, students and exams removed afterwards, `todayyear.js`) |
@@ -79,6 +77,7 @@ cmd.exe is usually WSL's. Set `GIT_BASH` if Git is installed somewhere unusual.
 | g33 | Phase 2 M7 (G3, migration 023): subjects: list with usage and `?status=`, create and edit (codes upper case and unique ignoring case, Amharic name, grade, only the fields sent), deactivate and reactivate, delete only an unused subject (409 with the usage), all audited; an inactive subject refused for new slots, class assignments, teacher subject lists (one already there may stay) and exams, its data kept; principal and teacher 403 on writes; the `period_times` setting (validated, sorted, audited) |
 | g34 | Phase 2 M7: timetable management: slot create, edit, delete audited with names and old values; edits change only the fields sent (teacher and room cleared with null, times checked); a deactivated teacher refused; `GET /timetable/conflicts` (same year only); teacher timetable `?academic_year_id=`; `POST /timetable/copy` (only into an empty class; same year: the target class's assigned teacher of the subject when active and free, else none with the reason; another year: the slot's teacher when free; inactive subjects skipped, both reported, from last year's class, two at once: one 409, one audit entry) |
 | g37 | Phase 2 M9: documents. Upload limits, Amharic file names in upload and download (RFC 5987), content must match the declared type, the 12 categories, private vs shared per role (teacher: own uploads + shared ones of own classes; principal all; parents and students none), teacher uploads only for own students, search and filters, edit by admin or uploader, delete admin only, audit entries, uploads in tests/uploads/documents |
+| g38 | Phase 2 M10: switch-over. Migration 026 (old columns and `fee_structures_legacy` gone), removed endpoints and shapes (`POST /grades/exams`, `/finance/unpaid`, the term payment shape, `?term=`: 404/400), the payment history (filters for dates, method, receipt number, student, status; totals per day and per method with reversed receipts apart; roles) |
 | g36 | Phase 2 M8: monthly fees. Fee structures (validation, overlaps, roles), generating charges (preview, idempotent, whole year, due day 10, Pagume capped), discounts (percent / amount, months, changed mid-year without touching paid months, never below what is paid), payments (several months on one receipt, partial, no overpayment, reference unless cash, M-Pesa, one student and year, future months ahead), receipt numbers (consecutive, no gaps under concurrent payments, a race for the same balance), reversal, waiver, manual charges, fee changes, summary identities, outstanding by class and month, student grid, parent monthly view and scoping, receipt PDF, the old term shape, audit entries. A year containing today made current while it runs |
 | g35 | Phase 2 M7: `GET /dashboard/school` (current year only: today's attendance per class marked / partly / not marked / no students, upcoming exams with times, score bands per semester, this year's fees; principal 200, teacher 403; a year containing today made current while it runs) and `GET /accounts/audit` (date range, user, action, target type, newest first, paging, user and target labels incl. Amharic, filter lists, bad input 400, admin only) |
 | g28 | Phase 2 M5a (C): conduct by the homeroom teacher (others 403), manual promotion decisions ("pending", override), semester locks: scores, exams, conduct, decisions, attendance and a changed semester 2 start refused with 409, unlock audited, writes working again; the promotion preview with the yearly results (suggested repeat, warnings) |
@@ -97,17 +96,16 @@ cmd.exe is usually WSL's. Set `GIT_BASH` if Git is installed somewhere unusual.
 | `regress.sh`, `run.js` | Runner, and the npm entry point for it |
 | `guard.sh`, `tdb.js` | Scratch-DB guard, and the guarded database pool |
 | `srv.sh` | Start or stop the test server on :3100 |
-| `static.js` | Serves `asms-frontend` on :5599, pointing `config.js` at :3100 |
-| `cdp.js` | Minimal DevTools client for headless Edge (temporary profile, page-load checks) |
 | `err500.js` | Sends a real database error through `sendServerError` for g3's generic-500 check |
 | `token.js` | Signs an access token for a user (`node tests/token.js <email>`) |
 | `mkstudents.js` | Creates throwaway students for g2b. The runner calls it |
 | `g3fix.js` → `g3.json` | One-time fixture (teachers, students, parent, classes) used by g3, g4, g4b and g7–g12. `g3.json` holds the ids in the current scratch DB. Re-run `g3fix.js` and save its output to `g3.json` only for a fresh scratch DB |
-| `fixture.js` | One-time fixture: the student with grades, payments and attendance used by g1, g4 and g6 |
+| `fixture.js` | One-time fixture: the student with grades, payments and attendance used by g1 and g4 |
+| `exams.js` | Since M10: `newExam` (`POST /exam-schedule` with a date inside the wanted semester of the class's year) and `examDate`; `POST /grades/exams` is gone |
 | `examreset.js` | Removes the exams earlier runs left in the fixture classes 9A and 9B, so a run starts under the 100-point limit per subject and semester (D25). The runner calls it; the suites use small max scores there |
 | `check_m5a.js` | The M5a rehearsal: 020 and 021 checks plus the empty 022 tables, for the three migrations in one run (`bash tests/restore_check.sh m5a tests/check_m5a.js`) |
 | `check_024.js` | Dry run and before/after check for migration 024 (monthly fees): payments by year, term and category, totals per student and year, outstanding and credit, fee_structures to move; afterwards payments unchanged, one legacy charge and allocation per payment, every total per student and year equal, `fee_structures_legacy` = the old rows (`bash tests/restore_check.sh 024 tests/check_024.js`) |
-| `fees.js` | Since 024: `legacyPayment` (a charge without a month and its payment, as 024 migrates term payments) and `clearFees` for suites that set up fees in the database |
+| `fees.js` | Since 024: `legacyPayment` (a charge without a month and its payment, as 024 migrates term payments; since M10 also the way to set up old amounts owed and paid) and `clearFees` for suites that set up fees in the database |
 | `check_023.js` | Dry run and before/after check for migration 023: subject codes and usage, timetable slots and their times, teacher double bookings, audit log size; afterwards subjects, timetable, audit log and settings unchanged, all subjects active, `period_times` seeded (`bash tests/restore_check.sh 023 tests/check_023.js`) |
 | `check_021.js` | Dry run and before/after check for migration 021 (results): letters kept but no longer filled, the max-score check still refuses, settings seeded |
 | `check_020.js` | Dry run and before/after check for migration 020 (semesters): exams per term and date, term/date disagreements, exams dated outside their year, term3 exams, subjects over 100 per semester (`bash tests/restore_check.sh 020 tests/check_020.js`) |
@@ -117,23 +115,17 @@ cmd.exe is usually WSL's. Set `GIT_BASH` if Git is installed somewhere unusual.
 | `cleanup_uploads.js` | Optional: deletes files that tests uploaded under `tests/uploads/documents` (`guard.sh` sets `UPLOAD_DIR` there, so the test server never writes into the school's `uploads/documents`) |
 | `uploadDir.js` | The test server's upload folder (`tests/uploads/documents`) |
 | `check_025.js` | Migration 025 (documents) before/after check, through `restore_check.sh` |
+| `check_026.js` | Migration 026 (M10 cleanup) dry run and before/after check: old exam terms and their semesters, grade letters, every old payment against its legacy charge (026 stops otherwise), `amount_paid = amount`, `fee_structures_legacy`; afterwards checksums of every kept column, totals (collected, allocated, open balance, semesters) and legacy charge terms unchanged, the columns and table gone (`bash tests/restore_check.sh 026 tests/check_026.js`) |
 | `restore_check.sh`, `check_018.js` | Real-data check (PHASE2_PLAN D24): `bash tests/restore_check.sh 018 tests/check_018.js` dumps `asms` (read-only) to `C:\asms\asms_backup_before_018_<time>.dump`, restores it into `asms_restore_check`, runs the pending migrations there and checks before/after. Never writes to `asms`. Needs `asms_restore_check` to exist once: `createdb -U postgres -O asms_user asms_restore_check` |
 
 Run one-time helpers through the guard, for example
 `bash tests/guard.sh node tests/setpw.js admin@asms.et Admin@1234`.
 
-## Browser suites
+## Browser suite (w2)
 
-- Each browser suite starts Edge with a new, empty profile in the system temp
-  folder (`asms-test-edge-*`) and deletes it when it finishes, even if the
-  suite crashes. Edge may copy browsing data from your normal profile into a
-  new profile at start, so nothing is kept between runs.
-- `goto()` waits for the page's load event (up to 15 s; set
-  `PAGE_LOAD_TIMEOUT` in ms to change it) and checks that the tab is on the
-  test site. If a page doesn't load, the error names the URL, the reason (for
-  example `net::ERR_CONNECTION_REFUSED`), what the tab is showing, and recent
-  network and page errors.
-- When a suite fails, the runner prints the last lines of its `.out` file.
+- w2 starts Edge with a new, empty profile in the system temp folder and
+  deletes it when it finishes. When a suite fails, the runner prints the last
+  lines of its `.out` file.
 
 ## Notes
 

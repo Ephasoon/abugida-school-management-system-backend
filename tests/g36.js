@@ -7,7 +7,7 @@
 // consecutive, no gaps under concurrent payments), reversal, waiver, manual charges, fee
 // structure changes (amount only on unpaid charges, due day, months), reports (summary
 // identities, outstanding by class and month, student grid), parent monthly view and scoping,
-// receipt PDF, the old frontend's term shape, audit entries. A year that contains today is made
+// receipt PDF, the old term shape refused (M10), audit entries. A year that contains today is made
 // current while it runs (todayyear.js), 2024/2025 put back afterwards. Scratch DB backend on :3100.
 const pool = require('./tdb');
 const { useTodayYear, restoreFixtureYear } = require('./todayyear');
@@ -283,10 +283,9 @@ const GRADE = 6;   // this suite's classes: grade 6 of the today year
     const rc = (await call(A, 'GET', `/finance/payments/${p3.body.data.id}`)).body.data;
     ok(rc.status === 'reversed' && rc.reversal_reason === 'Recorded twice' && rc.lines.length === 1 && rc.eth_year === toEthiopian(today).year, 'receipt data: reversed, reason, lines');
 
-    console.log('== Old frontend (term shape)');
+    console.log('== The old term shape (refused since M10)');
     const op = await call(A, 'POST', '/finance/payments', { student_id: s3, amount_due: 100, amount_paid: 50, payment_method: 'cash', payment_date: today, term: 'term2', category: 'exam' });
-    ok(op.status === 201 && /^RCP-\d{4}-\d{5}$/.test(op.body.data.receipt_number) && op.body.data.term === 'term2' && op.body.data.amount_due === '100.00', 'term shape: a charge without a month and a payment', msg(op));
-    ok((await call(A, 'POST', '/finance/payments', { student_id: s3, amount_due: 100, amount_paid: 150, payment_method: 'cash', payment_date: today })).status === 409, 'term shape above amount_due -> 409');
+    ok(op.status === 400 && op.body?.errors?.field === 'allocations', 'term shape -> 400, pointing at allocations', msg(op));
 
     console.log('== Audit');
     const acts = (await pool.query(

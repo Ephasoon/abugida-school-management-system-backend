@@ -6,7 +6,6 @@ const db            = require('../config/db');
 const { sendSuccess, sendError } = require('../utils/response');
 const { sendServerError } = require('../utils/errors');
 const { scopeCondition } = require('../utils/scope');
-const { createExam: createExamService, ExamError } = require('../services/exam.service');
 const { rateSql } = require('../utils/attendance');
 const RATE   = rateSql();   // attendance rate (M4): late attended, excused left out
 
@@ -28,21 +27,6 @@ const getAssignedTeacherId = async (userId, classId, subjectId) => {
 };
 
 const NOT_ASSIGNED = 'Access denied. You are not assigned to teach this subject in this class.';
-
-// POST /api/grades/exams — Create exam
-const createExam = async (req, res) => {
-  // Deprecated alias of POST /api/exam-schedule (same rules, date optional).
-  // Kept while the current HTML frontend (grades.html) still calls it.
-  res.set('Deprecation', 'true');
-  res.set('Link', '</api/exam-schedule>; rel="successor-version"');
-  try {
-    const { exam } = await createExamService(req.user, req.body, { requireDate: false });
-    return sendSuccess(res, exam, `Exam "${exam.name}" created successfully.`, 201);
-  } catch (err) {
-    if (err instanceof ExamError) return sendError(res, err.message, err.status, err.errors);
-    return sendServerError(res, err, 'Server error.');
-  }
-};
 
 // GET /api/grades/exams — List exams
 const getExams = async (req, res) => {
@@ -151,7 +135,7 @@ const enterGrades = async (req, res) => {
             `INSERT INTO grades (exam_id, student_id, score, remarks)
              VALUES ($1,$2,$3,$4)
              ON CONFLICT (exam_id, student_id)
-             DO UPDATE SET score=$3, grade_letter=NULL, remarks=$4, entered_at=NOW()`,
+             DO UPDATE SET score=$3, remarks=$4, entered_at=NOW()`,
             [exam_id, g.student_id, parseFloat(g.score), g.remarks || null]
           );
           saved++;
@@ -196,7 +180,7 @@ const getExamGrades = async (req, res) => {
        FROM students s LEFT JOIN grades g ON g.student_id = s.id AND g.exam_id = $1
        WHERE (s.class_id = $2 AND s.status = 'active') OR g.id IS NOT NULL
        ORDER BY s.first_name, s.fathers_name, s.last_name`, [ex[0].id, ex[0].class_id]);
-    const { grade_letter: _gl, class_year_id, ...exam } = ex[0];
+    const { class_year_id, ...exam } = ex[0];
     const lock = await findLock(db, { yearId: class_year_id, semester: exam.semester, classId: exam.class_id });
     exam.locked = !!lock;   // M5b: score entry is read-only while the semester is locked (D29)
     return sendSuccess(res, { exam, grades, students }, `${grades.length} score(s) entered.`);
@@ -235,7 +219,6 @@ const getReportCard = async (req, res) => {
       subject: x.name, subject_am: x.name_am, score: x.score,
       max_entered: x.max_total ?? null, complete: x.complete ?? null,
       average: x.score === null ? null : Number(x.score).toFixed(1),   // the subject score is out of 100
-      grade_letter: '—', grade_points: null,
     }));
     const part = sem || results?.year;
     const promotion = !sem ? results?.year.promotion : null;
@@ -253,7 +236,6 @@ const getReportCard = async (req, res) => {
       student: stuRows[0],
       subjects,
       academic_summary: {
-        gpa: '—',
         average: part?.average ?? null,
         rank: part?.rank ?? null,
         total_in_class: part?.ranked_count ?? null,
@@ -268,4 +250,4 @@ const getReportCard = async (req, res) => {
   }
 };
 
-module.exports = { createExam, getExams, getExamGrades, enterGrades, getReportCard };
+module.exports = { getExams, getExamGrades, enterGrades, getReportCard };

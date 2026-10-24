@@ -116,8 +116,8 @@ const getChildSummary = async (req, res) => {
 
     // Recent 5 grades
     const { rows: grades } = await db.query(
-      `SELECT g.score, NULL::text AS grade_letter, e.max_score,
-              s.name AS subject, e.term, e.semester, e.exam_type, e.exam_date
+      `SELECT g.score, e.max_score,
+              s.name AS subject, e.semester, e.exam_type, e.exam_date
        FROM grades g
        JOIN exams e ON e.id=g.exam_id
        JOIN subjects s ON s.id=e.subject_id
@@ -158,8 +158,8 @@ const getChildGrades = async (req, res) => {
     if (!owns) return sendError(res, 'Access denied.', 403);
 
     const { rows } = await db.query(
-      `SELECT g.score, NULL::text AS grade_letter, g.remarks,
-              e.name AS exam_name, e.exam_type, e.term, e.semester, e.max_score, e.exam_date,
+      `SELECT g.score, g.remarks,
+              e.name AS exam_name, e.exam_type, e.semester, e.max_score, e.exam_date,
               s.name AS subject_name,
               ROUND((g.score/e.max_score)*100,1) AS percentage
        FROM grades g
@@ -179,7 +179,7 @@ const getChildGrades = async (req, res) => {
 
     // No GPA since B2: the results (semester and yearly scores, averages, ranks) instead
     return sendSuccess(res, {
-      gpa: '—', total_exams: rows.length,
+      total_exams: rows.length,
       by_subject: Object.values(bySubject),
       results: await resultsOrNull(studentId),
     }, 'Grades retrieved.');
@@ -263,7 +263,6 @@ const getChildFees = async (req, res) => {
     }
     const { rows } = await db.query(
       `SELECT p.id, p.receipt_number, p.payment_method, p.payment_date, p.amount, p.reference,
-              p.term, p.category, p.amount_due, p.amount_paid, p.amount_due - p.amount_paid AS balance,
               CASE WHEN p.reversed_at IS NULL THEN 'valid' ELSE 'reversed' END AS status,
               (SELECT json_agg(json_build_object('amount', a.amount, 'category', c.category, 'eth_month', c.eth_month,
                        'legacy_term', c.legacy_term) ORDER BY c.eth_month NULLS LAST, c.category)

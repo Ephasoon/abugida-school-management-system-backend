@@ -3,16 +3,12 @@
 // Two semesters per academic year (B1, PHASE2_PLAN §5.1, migration 020).
 //   semester 1 = start_date … the day before semester2_start
 //   semester 2 = semester2_start … end_date
-// The API takes semester as 1 | 2 (or 'semester1' | 'semester2'). Until the old
-// frontend is retired (M10) `term` is still accepted and mapped: term1 -> 1,
-// term2 / term3 -> 2; new exams also store the matching term so its pages
-// keep showing it.
+// The API takes semester as 1 | 2 (or 'semester1' | 'semester2'). The old `term`
+// (mapped until M10) is refused with a 400 that names semester.
 // ============================================================
 
 const SEMESTERS = ['semester1', 'semester2'];
-const TERMS = ['term1', 'term2', 'term3'];
-const TERM_TO_SEMESTER = { term1: 'semester1', term2: 'semester2', term3: 'semester2' };
-const SEMESTER_TO_TERM = { semester1: 'term1', semester2: 'term2' };
+const TERM_GONE = 'term is no longer accepted (since M10): use semester 1 or 2.';
 
 /** 1 | 2 | '1' | 'semester1' … -> 'semester1' | 'semester2'; undefined when absent; null when invalid. */
 const parseSemester = (v) => {
@@ -30,7 +26,7 @@ const semesterOfDate = (year, date) => {
 };
 
 /**
- * A read filter from ?semester= (or the old ?term=, mapped).
+ * A read filter from ?semester= (the old ?term= is refused).
  * Returns { semester } (undefined: no filter) or { error }.
  */
 const semesterFilter = (query = {}) => {
@@ -38,13 +34,10 @@ const semesterFilter = (query = {}) => {
     const semester = parseSemester(query.semester);
     return semester === null ? { error: 'semester must be 1 or 2.' } : { semester };
   }
-  if (query.term !== undefined && query.term !== '') {
-    if (!TERMS.includes(query.term)) return { error: `term must be one of: ${TERMS.join(', ')} (or use semester=1|2).` };
-    return { semester: TERM_TO_SEMESTER[query.term] };
-  }
+  if (query.term !== undefined && query.term !== '') return { error: TERM_GONE };
   return { semester: undefined };
 };
 
 const semesterNumber = (s) => (s === 'semester2' ? 2 : 1);
 
-module.exports = { SEMESTERS, TERMS, TERM_TO_SEMESTER, SEMESTER_TO_TERM, parseSemester, semesterOfDate, semesterFilter, semesterNumber };
+module.exports = { SEMESTERS, TERM_GONE, parseSemester, semesterOfDate, semesterFilter, semesterNumber };

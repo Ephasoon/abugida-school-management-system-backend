@@ -4,6 +4,7 @@
 // Final / Provisional per semester, Amharic names and Ethiopian dates (the text is extracted
 // from the PDF). Scratch DB backend on :3100.
 const pool = require('./tdb');
+const { newExam } = require('./exams');
 const { createFreeYear } = require('./years');
 const { formatEthiopian, academicYearEthiopian } = require('../src/utils/ethiopianDate');
 const API = 'http://localhost:3100/api';
@@ -41,7 +42,7 @@ const tag = Date.now().toString(36);
     const hana = await stu('Hana', { fathers_name: 'Tesfaye', first_name_am: 'ሐና', fathers_name_am: 'ተስፋዬ' });
     const lily = await stu('Lily');
     const part = await stu('Part');
-    const ex = async (subject, sem, max) => (await call(A, 'POST', '/grades/exams', { class_id: cls, subject_id: subject, name: `G29 ${tag}`, exam_type: 'final', max_score: max, semester: sem })).body.data.id;
+    const ex = async (subject, sem, max) => (await newExam(call, A, { class_id: cls, subject_id: subject, name: `G29 ${tag}`, exam_type: 'final', max_score: max, semester: sem })).body.data.id;
     const m1 = await ex(G.math, 1, 100), e1 = await ex(G.eng, 1, 100), m2 = await ex(G.math, 2, 100), e2 = await ex(G.eng, 2, 100);
     const enter = (exam, list) => call(A, 'POST', '/grades', { exam_id: exam, grades: list.map(([student_id, score]) => ({ student_id, score })) });
     await enter(m1, [[hana, 92], [lily, 70], [part, 50]]);
@@ -81,8 +82,8 @@ const tag = Date.now().toString(36);
     // semester 2; English has a semester 1 exam without a score
     const cls2 = (await call(A, 'POST', '/classes', { academic_year_id: yr.id, grade_level: 8, section: 'C' })).body.data.id;
     const semi = (await call(A, 'POST', '/students', { first_name: 'Semi', last_name: `G29${tag}`, gender: 'male', class_id: cls2 })).body.data.id;
-    const q1 = (await call(A, 'POST', '/grades/exams', { class_id: cls2, subject_id: G.math, name: `G29 test ${tag}`, exam_type: 'quiz', max_score: 20, semester: 1 })).body.data.id;
-    await call(A, 'POST', '/grades/exams', { class_id: cls2, subject_id: G.eng, name: `G29 ${tag}`, exam_type: 'final', max_score: 100, semester: 1 });
+    const q1 = (await newExam(call, A, { class_id: cls2, subject_id: G.math, name: `G29 test ${tag}`, exam_type: 'quiz', max_score: 20, semester: 1 })).body.data.id;
+    await newExam(call, A, { class_id: cls2, subject_id: G.eng, name: `G29 ${tag}`, exam_type: 'final', max_score: 100, semester: 1 });
     await enter(q1, [[semi, 18]]);
     const sr = (await call(A, 'GET', `/results/student/${semi}?academic_year_id=${yr.id}`)).body?.data;
     const ys = (id) => sr?.year.subjects.find((x) => x.subject_id === id);
@@ -103,7 +104,7 @@ const tag = Date.now().toString(36);
     const lone = (await call(A, 'POST', '/students', { first_name: 'Lone', last_name: `G29${tag}`, gender: 'male' })).body.data.id;
     const n = await pdf(A, `/pdf/report-card/${lone}`);
     ok(n.status === 200 && (await pdfText(n.buf)).includes('No results yet'), 'a student without class or scores: "No results yet"');
-    ok((await pdf(A, `/pdf/report-card/${hana}?term=term1`)).status === 200, 'old ?term=term1 still works');
+    ok((await pdf(A, `/pdf/report-card/${hana}?term=term1`)).status === 400, 'old ?term=term1 -> 400 (M10)');
     ok((await pdf(A, `/pdf/report-card/${hana}?semester=3`)).status === 400, '?semester=3 -> 400');
     ok((await pdf(A, `/pdf/report-card/${hana}?academic_year_id=x`)).status === 400, 'academic_year_id malformed -> 400');
     ok((await pdf(PA, `/pdf/report-card/${hana}`)).status === 403, "parent: someone else's child -> 403");

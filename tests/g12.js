@@ -80,7 +80,7 @@ const sec = process.argv[2];   // optional: run one section (1, 2 or 4)
     const y = await createFreeYear(call, A, 4000, 5000);
     await call(A, 'POST', `/academic-years/${y.body.data.id}/activate`);
     try {
-      const pay = (sid, due, paid) => call(A, 'POST', '/finance/payments', { student_id: sid, amount_due: due, amount_paid: paid, payment_method: 'cash', payment_date: '2026-10-08' });
+      const pay = (sid, due, paid) => require('./fees').legacyPayment(pool, { student_id: sid, academic_year_id: y.body.data.id, due, paid });
       await pay(G.s1.sid, 10000, 10000); await pay(G.s2.sid, 8600, 8600); await pay(G.s3.sid, 5000, 4000);
       const sum = async (tok) => (await call(tok, 'GET', '/finance/summary')).body.data.summary;
       let s = await sum(A);
@@ -88,15 +88,14 @@ const sec = process.argv[2];   // optional: run one section (1, 2 or 4)
         'no overpayment: outstanding = net = 1,000, credit 0', `${s.total_outstanding}/${s.net_balance}/${s.total_credit}`);
       // Since M8 a new payment above what is due is refused; credit comes only from migrated
       // term payments (024), so the 300 overpayment is set up as such a legacy charge
-      const over = await pay(G.s2.sid, 0, 300);
-      ok(over.status === 409, 'old-page payment above amount_due -> 409 (no overpayment)', String(over.status));
+      const old = await call(A, 'POST', '/finance/payments', { student_id: G.s2.sid, amount_due: 0, amount_paid: 300, payment_method: 'cash', payment_date: '2026-10-08' });
+      ok(old.status === 400, 'the old term payment shape -> 400 (M10)', String(old.status));
       await require('./fees').legacyPayment(pool, { student_id: G.s2.sid, academic_year_id: y.body.data.id, due: 0, paid: 300 });
       s = await sum(A);
       ok(+s.total_outstanding === 1000, 'after a 300 overpayment: outstanding still 1,000 (debt not hidden)', s.total_outstanding);
       ok(+s.total_credit === 300 && +s.net_balance === 700, 'credit 300, net 700', `${s.total_credit} / ${s.net_balance}`);
       ok(+s.outstanding === +s.total_outstanding, 'legacy `outstanding` equals total_outstanding');
-      const unpaidSum = (await call(A, 'GET', '/finance/unpaid')).body.data.reduce((a, r) => a + +r.balance, 0);
-      ok(unpaidSum >= +s.total_outstanding, 'unpaid list (all years) covers at least this year\'s outstanding', `${unpaidSum}`);
+      ok((await call(A, 'GET', '/finance/unpaid')).status === 404, 'GET /finance/unpaid is gone (M10) -> 404');
       ok(+(await sum(P)).total_outstanding === 1000, 'principal sees the same figures');
       const ov = (await call(A, 'GET', '/analytics/overview')).body.data.finance;
       ok(+ov.total_outstanding === +ov.outstanding && +ov.net_balance === +ov.total_expected - +ov.total_collected && 'total_credit' in ov, 'analytics overview uses the same definitions');

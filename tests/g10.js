@@ -23,10 +23,10 @@ const NONE = '00000000-0000-0000-0000-000000000000';
     tA: await login(G.tA.email, 'Pass#2026'), tB: await login(G.tB.email, 'Pass#2026'),
     student: await login(G.s1.email, 'Pass#2026'), parent: await login(G.parent.email, 'Pass#2026'),
   };
-  const ENDPOINTS = { 'POST /grades/exams': '/grades/exams', 'POST /exam-schedule': '/exam-schedule' };
-  const body = (cls, sub, extra = {}) => ({ class_id: cls, subject_id: sub, name: 'G10 exam', exam_type: 'quiz', term: 'term1', exam_date: nextDate(), max_score: 1, ...extra });
+  const ENDPOINTS = { 'POST /exam-schedule': '/exam-schedule' };   // POST /grades/exams: removed (M10)
+  const body = (cls, sub, extra = {}) => ({ class_id: cls, subject_id: sub, name: 'G10 exam', exam_type: 'quiz', exam_date: nextDate(), max_score: 1, ...extra });
 
-  // ── Same rule on both endpoints ──
+  // ── Who may create an exam ──
   const cases = [
     ['admin, any class (9B English)', 'admin', [G.c9B, G.eng], 201],
     ['teacher A, own class + subject (9A Math)', 'tA', [G.c9A, G.math], 201],
@@ -39,7 +39,7 @@ const NONE = '00000000-0000-0000-0000-000000000000';
   ];
   const valid = [
     ['bad exam_type', { exam_type: 'oral' }, 400],
-    ['bad term', { term: 'annual' }, 400],
+    ['the old term (M10)', { term: 'term1' }, 400],
     ['max_score 0', { max_score: 0 }, 400],
     ['end_time before start_time', { start_time: '10:00', end_time: '09:00' }, 400],
     ['unknown class', { class_id: NONE }, 400],    // body ids: 400 "class_id does not exist." (G10)
@@ -59,25 +59,24 @@ const NONE = '00000000-0000-0000-0000-000000000000';
 
   // ── Same outcome stored ──
   console.log('== Stored exams');
-  const viaGrades = await call(T.tA, 'POST', '/grades/exams', body(G.c9A, G.math, { name: 'G10 via grades' }));
+  const viaGrades = await call(T.tA, 'POST', '/exam-schedule', body(G.c9A, G.math, { name: 'G10 plain' }));
   const viaSched  = await call(T.tA, 'POST', '/exam-schedule', body(G.c9A, G.math, { name: 'G10 via schedule', start_time: '08:30', end_time: '10:00', room: 'Hall', instructions: 'Pens only' }));
   const rows = (await pool.query('SELECT name, created_by, academic_year_id IS NOT NULL AS has_year FROM exams WHERE id = ANY($1) ORDER BY name', [[viaGrades.body.data.id, viaSched.body.data.id]])).rows;
-  ok(rows.length === 2 && rows.every(r => r.created_by === G.tA.tid && r.has_year), 'teacher-created exams record created_by = teacher A and the academic year (both endpoints)');
+  ok(rows.length === 2 && rows.every(r => r.created_by === G.tA.tid && r.has_year), 'teacher-created exams record created_by = teacher A and the academic year');
   const sch = (await pool.query('SELECT to_char(start_time,\'HH24:MI\') s, room, instructions FROM exam_schedules WHERE exam_id = $1', [viaSched.body.data.id])).rows[0];
   ok(sch && sch.s === '08:30' && sch.room === 'Hall' && sch.instructions === 'Pens only', 'schedule details stored with the exam');
   ok(viaSched.body.data.class_name === 'Grade 9 Section A' && viaSched.body.data.room === 'Hall', 'exam-schedule response includes class_name and schedule fields');
 
   console.log('== Endpoint-specific behaviour');
-  const noDate = (p) => call(T.admin, 'POST', p, { class_id: G.c9A, subject_id: G.math, name: 'G10 undated', exam_type: 'assignment', term: 'term1', max_score: 1 });
+  const noDate = (p) => call(T.admin, 'POST', p, { class_id: G.c9A, subject_id: G.math, name: 'G10 undated', exam_type: 'assignment', semester: 1, max_score: 1 });
   ok((await noDate('/exam-schedule')).status === 400, 'exam-schedule requires exam_date');
-  ok((await noDate('/grades/exams')).status === 201, 'grades/exams allows an undated exam (e.g. assignment)');
+  ok((await noDate('/grades/exams')).status === 404, 'POST /grades/exams is gone (M10) -> 404');
   const conflictDate = nextDate();
   await call(T.admin, 'POST', '/exam-schedule', body(G.c9B, G.eng, { exam_date: conflictDate, start_time: '08:00', end_time: '09:00' }));
   ok((await call(T.admin, 'POST', '/exam-schedule', body(G.c9B, G.eng, { exam_date: conflictDate, start_time: '10:00', end_time: '11:00' }))).status === 409, 'same class, same date, timed -> 409 conflict');
-  ok(viaGrades.headers.get('deprecation') === 'true' && /exam-schedule/.test(viaGrades.headers.get('link') || ''), 'grades/exams responses carry Deprecation + Link headers');
   ok(!viaSched.headers.get('deprecation'), 'exam-schedule is not marked deprecated');
 
-  console.log('== No active academic year: the exam takes its class\'s year (M5a), so both endpoints still work');
+  console.log('== No active academic year: the exam takes its class\'s year (M5a), so it still works');
   const cur = (await pool.query('SELECT id FROM academic_years WHERE is_current')).rows[0].id;
   await pool.query('UPDATE academic_years SET is_current = FALSE');
   try {

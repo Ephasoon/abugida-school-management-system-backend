@@ -15,22 +15,17 @@ echo "== Exam schedules persist (migration 011), atomically"
 for old in $(js "$(req GET "/exam-schedule?class_id=$C9A&from_date=2025-03-20&to_date=2025-03-20" "$AT")" "r.data.filter(e=>e.name==='Final G4').map(e=>e.id).join(' ')"); do
   echo "  cancel leftover Final G4: $(code "$(req DELETE /exam-schedule/$old "$AT")")"
 done
-R=$(req POST /exam-schedule "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"Final G4\",\"max_score\":1,\"exam_type\":\"final\",\"term\":\"term2\",\"exam_date\":\"2025-03-20\",\"start_time\":\"08:30\",\"end_time\":\"10:30\",\"room\":\"Lab 2\",\"instructions\":\"Bring a calculator\"}")
+R=$(req POST /exam-schedule "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"Final G4\",\"max_score\":1,\"exam_type\":\"final\",\"exam_date\":\"2025-03-20\",\"start_time\":\"08:30\",\"end_time\":\"10:30\",\"room\":\"Lab 2\",\"instructions\":\"Bring a calculator\"}")
 ok $(code "$R") 201 "schedule exam with time/room"; EID=$(js "$R" "r.data.id")
 echo "  exam_schedules row: $(q "SELECT start_time,end_time,room,instructions FROM exam_schedules WHERE exam_id=\$1" $EID)"
-ok $(code "$(req POST /exam-schedule "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"Bad time\",\"max_score\":1,\"exam_type\":\"quiz\",\"term\":\"term2\",\"exam_date\":\"2025-03-21\",\"start_time\":\"10:00\",\"end_time\":\"09:00\"}")") 400 "end_time before start_time"
+ok $(code "$(req POST /exam-schedule "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"Bad time\",\"max_score\":1,\"exam_type\":\"quiz\",\"exam_date\":\"2025-03-21\",\"start_time\":\"10:00\",\"end_time\":\"09:00\"}")") 400 "end_time before start_time"
 LONG=$(printf 'R%.0s' $(seq 1 60))
-R=$(req POST /exam-schedule "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"Atomic check\",\"max_score\":1,\"exam_type\":\"quiz\",\"term\":\"term2\",\"exam_date\":\"2025-03-22\",\"start_time\":\"08:00\",\"end_time\":\"09:00\",\"room\":\"$LONG\"}")
+R=$(req POST /exam-schedule "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"Atomic check\",\"max_score\":1,\"exam_type\":\"quiz\",\"exam_date\":\"2025-03-22\",\"start_time\":\"08:00\",\"end_time\":\"09:00\",\"room\":\"$LONG\"}")
 ok $(code "$R") 500 "schedule insert fails (room > 50 chars) -> error surfaces"
 echo "  exam row left behind: $(q "SELECT count(*) FROM exams WHERE name='Atomic check'")"
 
-echo "== Finance categories/terms"
-pay(){ code "$(req POST /finance/payments "$AT" "{\"student_id\":\"$S1\",\"amount_due\":100,\"amount_paid\":50,\"payment_method\":\"cash\",\"payment_date\":\"2026-10-07\"$1}")"; }
-for c in transport library sport uniform material registration; do ok $(pay ",\"category\":\"$c\"") 201 "category $c"; done
-ok $(pay ',"category":"books"') 400 "unknown category rejected"
-ok $(pay ',"term":"annual"') 400 "term annual rejected"
-ok $(pay ',"term":"term3"') 201 "term term3"
-echo "  omitted category/term stored as: $(q "SELECT category,term FROM payments WHERE student_id=\$1 ORDER BY created_at DESC LIMIT 1" $S1)"
+echo "== Finance: the old term payment shape is refused (M10; categories: g36)"
+ok $(code "$(req POST /finance/payments "$AT" "{\"student_id\":\"$S1\",\"amount_due\":100,\"amount_paid\":50,\"payment_method\":\"cash\",\"payment_date\":\"2026-10-07\",\"term\":\"term3\"}")") 400 "amount_due/amount_paid shape -> 400"
 
 echo "== Student/teacher numbers from sequences (10 parallel creates each)"
 for i in $(seq 1 10); do curl -s -o $J/st$i -X POST $B/students -H "Authorization: Bearer $AT" -H 'Content-Type: application/json' -d "{\"first_name\":\"Par\",\"last_name\":\"$i\",\"gender\":\"male\"}" & done; wait
@@ -38,14 +33,14 @@ for i in $(seq 1 10); do curl -s -o $J/tc$i -X POST $B/teachers -H "Authorizatio
 node -e "const fs=require('fs');const d=process.argv[1];for(const p of ['st','tc']){const r=[...Array(10)].map((_,i)=>JSON.parse(fs.readFileSync(d+'/'+p+(i+1))));const ok=r.filter(x=>x.success);const nums=ok.map(x=>x.data.student_number||x.data.teacher_number);console.log('  '+p+': success',ok.length+'/10','unique',new Set(nums).size,' e.g.',nums.sort().slice(0,3).join(', '))}" "$(cygpath -m $J)"
 
 echo "== Score limits"
-R=$(req POST /grades/exams "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"Max10\",\"exam_type\":\"quiz\",\"term\":\"term1\",\"max_score\":10}"); XID=$(js "$R" "r.data.id")
+R=$(req POST /exam-schedule "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"Max10\",\"exam_type\":\"quiz\",\"exam_date\":\"2024-11-15\",\"max_score\":10}"); XID=$(js "$R" "r.data.id")
 for sc in 11 -1 '"abc"'; do ok $(code "$(req POST /grades "$TA" "{\"exam_id\":\"$XID\",\"grades\":[{\"student_id\":\"$S1\",\"score\":$sc}]}")") 400 "score $sc on max 10"; done
 R=$(req POST /grades "$TA" "{\"exam_id\":\"$XID\",\"grades\":[{\"student_id\":\"$S1\",\"score\":9},{\"student_id\":\"$S1\",\"score\":12}]}"); ok $(code "$R") 400 "batch with one bad score"; echo "  body: ${R#* }"
 echo "  nothing saved from rejected batch: $(q "SELECT count(*) FROM grades WHERE exam_id=\$1" $XID)"
 ok $(code "$(req POST /grades "$TA" "{\"exam_id\":\"$XID\",\"grades\":[{\"student_id\":\"$S1\",\"score\":10}]}")") 200 "score 10 on max 10"
 ok $(code "$(req PUT /exam-schedule/$XID "$AT" '{"max_score":5}')") 400 "lower max_score below entered score"; echo "  body: $(cat $J/body)"
 ok $(code "$(req PUT /exam-schedule/$XID "$AT" '{"max_score":0}')") 400 "max_score 0"
-ok $(code "$(req POST /grades/exams "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"X\",\"exam_type\":\"quiz\",\"term\":\"term1\",\"max_score\":1000}")") 400 "create exam max_score 1000"
+ok $(code "$(req POST /exam-schedule "$AT" "{\"class_id\":\"$C9A\",\"subject_id\":\"$MATH\",\"name\":\"X\",\"exam_type\":\"quiz\",\"exam_date\":\"2024-11-15\",\"max_score\":1000}")") 400 "create exam max_score 1000"
 ok $(code "$(req PUT /exam-schedule/$XID "$AT" '{"max_score":20}')") 200 "raise max_score"
 
 echo "== GET /students includes class_id"

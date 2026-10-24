@@ -4,10 +4,7 @@
 // month, discounts, payments (receipts) allocated to charges, reversals, reports.
 // Admin manages; principal reads (PERMISSIONS.md). Exact amounts: utils/money.js.
 // The rules for months, due dates, discounts and receipt numbers: services/fees.service.js.
-//
-// The old frontend (finance.html, until M10) still posts the term shape to
-// POST /payments ({ amount_due, amount_paid, term, category }): it becomes one charge
-// without a month plus a payment for it, as the migrated payments (024).
+// Payments made before M8 are legacy charges (legacy_term) with one payment each (024).
 // ============================================================
 
 const db = require('../config/db');
@@ -444,7 +441,7 @@ const deleteDiscount = async (req, res) => {
 
 // ══ Payments ════════════════════════════════════════════════
 
-// The payment's own fields, shared by both shapes
+// The payment's own fields
 const paymentInput = (body) => {
   const { payment_method, payment_date } = body;
   if (!F.METHODS.includes(payment_method)) throw new FinanceError(`payment_method must be: ${F.METHODS.join(', ')}`);
@@ -457,14 +454,12 @@ const paymentInput = (body) => {
   return { payment_method, payment_date, reference, notes: text(body.notes, 500) };
 };
 
-const insertPayment = async (client, req, studentId, yearId, amount, p, legacy = null) => {
+const insertPayment = async (client, req, studentId, yearId, amount, p) => {
   const receipt = await F.nextReceiptNumber(client, p.payment_date);
   const { rows } = await client.query(
-    `INSERT INTO payments (student_id, academic_year_id, term, category, amount_due, amount_paid, amount,
-                           payment_method, payment_date, receipt_number, reference, recorded_by, notes, fee_structure_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
-    [studentId, yearId, legacy?.term ?? null, legacy?.category ?? null, legacy ? fromCents(legacy.due) : null, fromCents(amount),
-      p.payment_method, p.payment_date, receipt, p.reference, req.user.id, p.notes, legacy?.fee_structure_id ?? null]);
+    `INSERT INTO payments (student_id, academic_year_id, amount, payment_method, payment_date, receipt_number, reference, recorded_by, notes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+    [studentId, yearId, fromCents(amount), p.payment_method, p.payment_date, receipt, p.reference, req.user.id, p.notes]);
   return rows[0];
 };
 
@@ -472,13 +467,13 @@ const insertPayment = async (client, req, studentId, yearId, amount, p, legacy =
 //   { student_id, payment_date, payment_method, reference?, notes?, allocations: [{ charge_id, amount }] }
 //   One receipt for several charges (e.g. three months of tuition and transport). Each amount at
 //   most what is open on the charge: no overpayment. All charges of one student and one year.
-// Old frontend: { student_id, amount_due, amount_paid, payment_method, payment_date, term?, category? }
+// The old term shape ({ amount_due, amount_paid, term }) is refused since M10.
 const recordPayment = async (req, res) => {
   try {
     const { student_id } = req.body;
     if (!student_id) return sendError(res, 'student_id is required.', 400);
     if (!Array.isArray(req.body.allocations) && (req.body.amount_due !== undefined || req.body.amount_paid !== undefined)) {
-      return await recordLegacyShape(req, res);
+      return sendError(res, 'The term payment shape (amount_due, amount_paid) is no longer accepted: send allocations [{ charge_id, amount }].', 400, { field: 'allocations' });
     }
     const p = paymentInput(req.body);
     const list = req.body.allocations;
@@ -522,39 +517,6 @@ const recordPayment = async (req, res) => {
   }
 };
 
-// The old term shape: one charge without a month (amount_due) and a payment for it (amount_paid)
-const recordLegacyShape = async (req, res) => {
-  const { student_id, amount_due, amount_paid, term, category, fee_structure_id } = req.body;
-  const missing = (v) => v === undefined || v === null || v === '';
-  if (missing(amount_due) || missing(amount_paid) || !req.body.payment_method || !req.body.payment_date) {
-    return sendError(res, 'student_id, amount_due, amount_paid, payment_method, and payment_date are required.', 400);
-  }
-  const due = parseAmount(amount_due), paid = parseAmount(amount_paid);
-  if (due === null || paid === null) return sendError(res, 'amount_due and amount_paid must be numbers of 0 or more.', 400);
-  if (term && !['term1', 'term2', 'term3'].includes(term)) return sendError(res, 'term must be: term1, term2, term3', 400);
-  if (category && !F.CATEGORIES.includes(category)) return sendError(res, `category must be: ${F.CATEGORIES.join(', ')}`, 400);
-  if (paid > due) return sendError(res, 'amount_paid is more than amount_due (no overpayment).', 409);
-  const p = paymentInput(req.body);
-  const year = await getCurrentYear();
-  if (!year) return sendError(res, 'No active academic year. Please activate one first.', 400);
-  const legacy = { term: term || 'term1', category: category || 'tuition', due, fee_structure_id: fee_structure_id || null };
-  const out = await inTransaction(async (client) => {
-    const { rows: [charge] } = await client.query(
-      `INSERT INTO student_charges (student_id, academic_year_id, category, amount_due, legacy_term, description, created_by)
-       VALUES ($1, $2, $3, $4, $5, 'Recorded on the old finance page', $6) RETURNING *`,
-      [student_id, year.id, legacy.category, fromCents(due), legacy.term, req.user.id]);
-    let pay = null;
-    if (paid > 0) {
-      pay = await insertPayment(client, req, student_id, year.id, paid, p, legacy);
-      await client.query('INSERT INTO payment_allocations (payment_id, charge_id, amount) VALUES ($1, $2, $3)', [pay.id, charge.id, fromCents(paid)]);
-    }
-    await audit(client, req, 'payment.recorded', pay ? 'payment' : 'charge', pay?.id ?? charge.id,
-      { receipt_number: pay?.receipt_number ?? null, student_id, amount_due: fromCents(due), amount: fromCents(paid), term: legacy.term, category: legacy.category, old_page: true });
-    return pay ?? { ...charge, receipt_number: null, amount_paid: '0.00', payment_method: p.payment_method, payment_date: p.payment_date };
-  });
-  return sendSuccess(res, out, out.receipt_number ? `Payment recorded. Receipt: ${out.receipt_number}` : 'Charge recorded (nothing paid).', 201);
-};
-
 // A receipt: the payment, the student, what it paid, the reversal if any
 const loadReceipt = async (q, id) => {
   const { rows: [p] } = await q.query(
@@ -578,43 +540,73 @@ const loadReceipt = async (q, id) => {
   return { ...p, eth_year: toEthiopian(p.payment_date)?.year ?? null, status: p.reversed_at ? 'reversed' : 'valid', lines };
 };
 
-// GET /finance/payments?student_id=&academic_year_id=&from=&to=&method=&status=valid|reversed
+// GET /finance/payments?from=&to=&method=&receipt=&student_id=&academic_year_id=&status=valid|reversed&page=&limit=
+// The payment history (M10): the receipts of the filter, newest first, a page at a time, and for
+// the whole filter (every page) the totals, per method and per day with the methods of each day,
+// so the cashier can count the cash at the end of the day. Totals count valid receipts only;
+// reversed ones are counted apart. receipt: part of a receipt number (RCP-2019-00012, 00012).
 const getPayments = async (req, res) => {
   try {
     const pg = parsePagination(req.query);
     if (pg.error) return sendError(res, pg.error, 400);
-    const { student_id, academic_year_id, from, to, method, status, term } = req.query;
+    const { student_id, academic_year_id, from, to, method, status } = req.query;
+    if (req.query.term !== undefined) return sendError(res, 'term is no longer a filter (since M10).', 400, { field: 'term' });
     const cond = []; const params = [];
-    const add = (sql, v) => { params.push(v); cond.push(sql.replace('?', `$${params.length}`)); };
+    const add = (sql, v) => { params.push(v); cond.push(sql.replaceAll('?', `$${params.length}`)); };
     for (const id of [student_id, academic_year_id].filter(Boolean)) {
       if (!/^[0-9a-f-]{36}$/i.test(id)) return sendError(res, 'Invalid id.', 400);
     }
     if (student_id) add('p.student_id = ?', student_id);
     if (academic_year_id) add('p.academic_year_id = ?', academic_year_id);
-    if (from) { if (!isIsoDate(from)) return sendError(res, 'from must be a date.', 400); add('p.payment_date >= ?', from); }
-    if (to) { if (!isIsoDate(to)) return sendError(res, 'to must be a date.', 400); add('p.payment_date <= ?', to); }
-    if (method) { if (!F.METHODS.includes(method)) return sendError(res, 'Unknown payment method.', 400); add('p.payment_method = ?', method); }
+    if (from) { if (!isIsoDate(from)) return sendError(res, 'from must be a date.', 400, { field: 'from' }); add('p.payment_date >= ?', from); }
+    if (to) { if (!isIsoDate(to)) return sendError(res, 'to must be a date.', 400, { field: 'to' }); add('p.payment_date <= ?', to); }
+    if (from && to && to < from) return sendError(res, 'to must not be before from.', 400, { field: 'to' });
+    if (method) { if (!F.METHODS.includes(method)) return sendError(res, 'Unknown payment method.', 400, { field: 'method' }); add('p.payment_method = ?', method); }
     if (status === 'valid') cond.push('p.reversed_at IS NULL');
     else if (status === 'reversed') cond.push('p.reversed_at IS NOT NULL');
-    if (term) add('p.term = ?', term);
+    else if (status) return sendError(res, 'status must be valid or reversed.', 400, { field: 'status' });
+    const receipt = text(req.query.receipt, 40);
+    if (receipt) add("p.receipt_number ILIKE '%' || ? || '%'", receipt.replace(/[\\%_]/g, '\\$&'));
     const where = cond.length ? `WHERE ${cond.join(' AND ')}` : '';
     const { rows } = await db.query(
-      `SELECT p.*, s.first_name || ' ' || s.last_name AS student_name, s.student_number, ay.name AS academic_year,
+      `SELECT p.id, p.receipt_number, p.payment_date, p.payment_method, p.reference, p.amount, p.notes, p.created_at,
+              p.reversed_at, p.reversal_reason, p.student_id, p.academic_year_id,
+              s.first_name || ' ' || s.last_name AS student_name, s.student_number,
+              s.first_name_am, s.fathers_name_am, s.last_name_am, c.name AS class_name, ay.name AS academic_year,
+              COALESCE(ru.display_name, ru.email) AS recorded_by_name,
               CASE WHEN p.reversed_at IS NULL THEN 'valid' ELSE 'reversed' END AS status,
-              (SELECT json_agg(json_build_object('charge_id', a.charge_id, 'amount', a.amount, 'category', c.category,
-                       'eth_month', c.eth_month, 'legacy_term', c.legacy_term) ORDER BY c.eth_month NULLS LAST, c.category)
-               FROM payment_allocations a JOIN student_charges c ON c.id = a.charge_id WHERE a.payment_id = p.id) AS lines
+              (SELECT json_agg(json_build_object('charge_id', a.charge_id, 'amount', a.amount, 'category', ch.category,
+                       'eth_month', ch.eth_month, 'legacy_term', ch.legacy_term) ORDER BY ch.eth_month NULLS LAST, ch.category)
+               FROM payment_allocations a JOIN student_charges ch ON ch.id = a.charge_id WHERE a.payment_id = p.id) AS lines
        FROM payments p
        LEFT JOIN students s ON s.id = p.student_id
+       LEFT JOIN classes c ON c.id = s.class_id
        LEFT JOIN academic_years ay ON ay.id = p.academic_year_id
+       LEFT JOIN users ru ON ru.id = p.recorded_by
        ${where}
-       ORDER BY p.payment_date DESC, p.created_at DESC
+       ORDER BY p.payment_date DESC, p.receipt_number DESC
        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`, [...params, pg.limit, pg.offset]);
-    const total = (await db.query(`SELECT COUNT(*)::int n FROM payments p ${where}`, params)).rows[0].n;
+    const { rows: [totals] } = await db.query(
+      `SELECT COUNT(*)::int AS receipts, COUNT(*) FILTER (WHERE p.reversed_at IS NULL)::int AS count,
+              COALESCE(SUM(p.amount) FILTER (WHERE p.reversed_at IS NULL), 0) AS amount,
+              COUNT(*) FILTER (WHERE p.reversed_at IS NOT NULL)::int AS reversed_count,
+              COALESCE(SUM(p.amount) FILTER (WHERE p.reversed_at IS NOT NULL), 0) AS reversed_amount
+       FROM payments p ${where}`, params);
+    const valid = where ? `${where} AND p.reversed_at IS NULL` : 'WHERE p.reversed_at IS NULL';
+    const { rows: byMethod } = await db.query(
+      `SELECT p.payment_method AS method, COUNT(*)::int AS count, SUM(p.amount) AS amount
+       FROM payments p ${valid} GROUP BY 1 ORDER BY SUM(p.amount) DESC, 1`, params);
+    const { rows: byDay } = await db.query(
+      `SELECT d.payment_date AS date, SUM(d.count)::int AS count, SUM(d.amount) AS amount,
+              json_object_agg(d.method, json_build_object('count', d.count, 'amount', d.amount)) AS methods
+       FROM (SELECT p.payment_date, p.payment_method AS method, COUNT(*)::int AS count, SUM(p.amount) AS amount
+             FROM payments p ${valid} GROUP BY 1, 2) d
+       GROUP BY d.payment_date ORDER BY d.payment_date DESC`, params);
     return sendSuccess(res, {
       payments: rows,
-      pagination: { total, page: pg.page, limit: pg.limit, totalPages: Math.ceil(total / pg.limit) },
-    }, `Found ${rows.length} payment(s).`);
+      totals, by_method: byMethod, by_day: byDay,
+      pagination: { total: totals.receipts, page: pg.page, limit: pg.limit, totalPages: Math.ceil(totals.receipts / pg.limit) },
+    }, `Found ${totals.receipts} payment(s).`);
   } catch (err) {
     return fail(res, err, 'Server error.');
   }
@@ -781,30 +773,11 @@ const getStudentBalance = async (req, res) => {
   }
 };
 
-// GET /finance/unpaid — students owing now (all years), as the old finance page lists them
-const getUnpaidStudents = async (req, res) => {
-  try {
-    const { rows } = await db.query(
-      `SELECT s.id, s.first_name || ' ' || s.last_name AS name, s.student_number, c.name AS class_name,
-              SUM(b.balance) AS balance
-       FROM student_charge_balances b
-       JOIN students s ON s.id = b.student_id
-       LEFT JOIN classes c ON c.id = s.class_id
-       WHERE ${F.DUE_NOW}
-       GROUP BY s.id, s.first_name, s.last_name, s.student_number, c.name
-       HAVING SUM(b.balance) > 0
-       ORDER BY balance DESC`);
-    return sendSuccess(res, rows, `${rows.length} student(s) with outstanding balance.`);
-  } catch (err) {
-    return fail(res, err, 'Server error.');
-  }
-};
-
 module.exports = {
   listFeeStructures, createFeeStructure, updateFeeStructure, deleteFeeStructure, generateCharges,
   listCharges, createCharge, waiveCharge,
   listDiscounts, createDiscount, updateDiscount, deleteDiscount,
   recordPayment, getPayments, getPayment, reversePayment, loadReceipt,
-  getFinanceSummary, getOutstanding, getStudentBalance, getUnpaidStudents,
+  getFinanceSummary, getOutstanding, getStudentBalance,
   FinanceError,
 };

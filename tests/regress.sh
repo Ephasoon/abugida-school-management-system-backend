@@ -1,25 +1,23 @@
 #!/usr/bin/env bash
-# Full regression: every suite on a fresh scratch-DB server (:3100); browser suites use static :5599.
+# Full regression: every suite on a fresh scratch-DB server (:3100). The old HTML frontend and its browser
+# suites (g5, g5b, g6; static :5599, Edge DevTools :9333) were retired in M10.
 # w1/w2 test the new React app in WEB_DIR (default ../asms-web): w1 = type check, lint, unit tests;
 # w2 = Playwright in Edge against the built app on :5600 -> :3100. Skipped if WEB_DIR is missing.
 # Usage: regress.sh [suite...]   (no arguments = all suites). Exits 1 if any suite fails.
 S="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; WS="$(cygpath -m "$S")"   # this tests/ folder (bash path, Windows path)
 cd $S || exit 1
-[ $# -eq 0 ] && set -- g1 g2 g2b g3 g4 g4b g5 g5b g6 g7 g8 g9 g10 g11 g12 g13 g14 g15 g16 g17 g18 g19 g20 g21 g22 g23 g24 g25 g26 g27 g28 g29 g30 g31 g32 g33 g34 g35 g36 g37 w1 w2
+[ $# -eq 0 ] && set -- g1 g2 g2b g3 g4 g4b g7 g8 g9 g10 g11 g12 g13 g14 g15 g16 g17 g18 g19 g20 g21 g22 g23 g24 g25 g26 g27 g28 g29 g30 g31 g32 g33 g34 g35 g36 g37 g38 w1 w2
 WEB_DIR="${WEB_DIR:-$S/../../asms-web}"
-busy=$(netstat -ano | grep -oE ":(3100|5599|5600|9333) .*LISTEN.*" | sort -u)
+busy=$(netstat -ano | grep -oE ":(3100|5600) .*LISTEN.*" | sort -u)
 if [ -n "$busy" ]; then echo "test port(s) already in use, abort:"; echo "$busy"; exit 1; fi
-export CORS_ORIGINS="http://localhost:5599,http://127.0.0.1:5599,http://localhost:5600"
+export CORS_ORIGINS="http://localhost:5600"
 $S/guard.sh node $S/mkstudents.js | tail -1 > $S/students.json
 $S/guard.sh node $S/examreset.js | tail -1
-node static.js > static.log 2>&1 &
-sleep 1
 
 run_suite() {
   local t=$1
   case $t in
-    g7|g8|g9|g10|g11|g12|g13|g14|g15|g16|g17|g18|g19|g20|g21|g22|g23|g24|g25|g26|g27|g28|g29|g30|g31|g32|g33|g34|g35|g36|g37) $S/guard.sh node "$WS/$t.js" > $t.out 2>&1; grep -E "^PASS=|^TOTAL" $t.out | tr '\n' ' ' ;;
-    g5|g5b|g6)   timeout 300 node $t.js > $t.out 2>&1; grep -E "PASS=|ALL PASS|FAILURES" $t.out | tr '\n' ' ' ;;
+    g7|g8|g9|g10|g11|g12|g13|g14|g15|g16|g17|g18|g19|g20|g21|g22|g23|g24|g25|g26|g27|g28|g29|g30|g31|g32|g33|g34|g35|g36|g37|g38) $S/guard.sh node "$WS/$t.js" > $t.out 2>&1; grep -E "^PASS=|^TOTAL" $t.out | tr '\n' ' ' ;;
     w1|w2)       run_web $t ;;
     *)           $S/$t.sh > $t.out 2>&1; echo -n "PASS=$(grep -c ' PASS ' $t.out) FAIL=$(grep -c ' FAIL ' $t.out)" ;;
   esac
@@ -58,9 +56,7 @@ for t in "$@"; do
   $S/srv.sh stop
 done
 
-powershell -NoProfile -Command "Stop-Process -Id $(cat $S/static.winpid) -ErrorAction SilentlyContinue"
-sleep 1
-netstat -ano | grep -E ":(3100|5599|5600|9333) .*LISTEN" || echo "test ports closed"
+netstat -ano | grep -E ":(3100|5600) .*LISTEN" || echo "test ports closed"
 
 if [ ${#failed[@]} -gt 0 ]; then
   for t in "${failed[@]}"; do echo; echo "----- $t.out (last 15 lines)"; tail -15 "$S/$t.out"; done
