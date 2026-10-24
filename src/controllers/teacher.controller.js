@@ -279,6 +279,11 @@ const assignSubjects = async (req, res) => {
 
       const { rows: old } = await client.query(
         'SELECT subject_id FROM teacher_subjects WHERE teacher_id = $1 ORDER BY subject_id', [id]);
+      // An inactive subject may stay in the list but not be added to it
+      const { rows: inactive } = await client.query(
+        `SELECT name FROM subjects WHERE id::text = ANY($1) AND NOT is_active
+           AND id NOT IN (SELECT subject_id FROM teacher_subjects WHERE teacher_id = $2)`, [ids, id]);
+      if (inactive[0]) return { status: 400, message: `subject_ids: ${inactive.map((r) => r.name).join(', ')} inactive.` };
       await client.query('DELETE FROM teacher_subjects WHERE teacher_id = $1', [id]);
       if (ids.length) {
         await client.query(
@@ -326,7 +331,8 @@ const assignClass = async (req, res) => {
 
     // Both ids exist (validateBodyIds); loaded here for their names
     const { rows: c } = await db.query('SELECT id, name FROM classes WHERE id = $1', [class_id]);
-    const { rows: s } = await db.query('SELECT id, name FROM subjects WHERE id = $1', [subject_id]);
+    const { rows: s } = await db.query('SELECT id, name, is_active FROM subjects WHERE id = $1', [subject_id]);
+    if (!s[0].is_active) return sendError(res, `subject_id: ${s[0].name} is inactive.`, 400, { field: 'subject_id' });
 
     const { rows: own } = await db.query(
       'SELECT 1 FROM teacher_subjects WHERE teacher_id = $1 AND subject_id = $2', [id, s[0].id]);
@@ -391,7 +397,7 @@ const removeClassAssignment = async (req, res) => {
 const getAllSubjects = async (req, res) => {
   try {
     const { rows } = await db.query(
-      'SELECT id, name, name_am, code FROM subjects ORDER BY name'
+      'SELECT id, name, name_am, code, is_active FROM subjects ORDER BY name'
     );
     return sendSuccess(res, rows, `${rows.length} subject(s) found.`);
   } catch (err) {

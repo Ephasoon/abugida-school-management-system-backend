@@ -46,6 +46,8 @@ const unknown = () => crypto.randomUUID();
     ['POST',   '/academic-years/:id/copy-classes',    { from_year_id: yearId },               'admin'],
     ['POST',   '/academic-years/:id/promotion-preview', { from_year_id: yearId },             'admin'],
     ['PUT',    '/classes/:id',                        { capacity: 45 },                       'admin'],
+    ['PUT',    '/subjects/:id',                       { name_am: 'X' },                       'admin'],
+    ['DELETE', '/subjects/:id',                       null,                                   'admin'],
     ['POST',   '/academic-years/:id/promote',         { from_year_id: yearId },               'admin'],
     ['POST',   '/accounts/users/:userId/reset-password', null,                                'admin'],
     ['POST',   '/accounts/students/:studentId/login', { email: 'g13.none@asms.et' },          'admin'],

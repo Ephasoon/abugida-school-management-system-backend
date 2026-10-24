@@ -124,7 +124,7 @@ const createExam = async (user, input, { requireDate = false } = {}) => {
 
   const cls = await loadClassYear(db, class_id);
   if (!cls) throw new ExamError(404, 'Class not found.');
-  const { rows: sub } = await db.query('SELECT id, name FROM subjects WHERE id::text = $1', [String(subject_id)]);
+  const { rows: sub } = await db.query('SELECT id, name, is_active FROM subjects WHERE id::text = $1', [String(subject_id)]);
   if (!sub[0]) throw new ExamError(404, 'Subject not found.');
 
   // ── Permission: teachers only for their own class + subject ──
@@ -138,6 +138,7 @@ const createExam = async (user, input, { requireDate = false } = {}) => {
     if (!rows[0]) throw new ExamError(403, 'Access denied. You are not assigned to teach this subject in this class.');
     createdBy = rows[0].id;
   }
+  if (!sub[0].is_active) throw new ExamError(400, `subject_id: ${sub[0].name} is inactive.`, { field: 'subject_id' });
   const sem = decideSemester(cls, { semester, term, exam_date });   // after the access check: 403 first
 
   // ── Same class, same date: only one timed exam ──
