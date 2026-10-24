@@ -17,6 +17,8 @@ const { sendSuccess,
         sendError } = require('../utils/response');
 const { sendServerError } = require('../utils/errors');
 const { rateSql } = require('../utils/attendance');
+const { studentTotals, ecYearOf } = require('../services/fees.service');
+const { toCents, fromCents } = require('../utils/money');
 const RATE   = rateSql();   // attendance rate (M4): late attended, excused left out
 
 
@@ -123,13 +125,8 @@ const getChildSummary = async (req, res) => {
        ORDER BY g.entered_at DESC LIMIT 5`, [studentId]
     );
 
-    // Fee balance
-    const { rows: fees } = await db.query(
-      `SELECT COALESCE(SUM(amount_due),0) AS total_due,
-              COALESCE(SUM(amount_paid),0) AS total_paid,
-              COALESCE(SUM(amount_due)-SUM(amount_paid),0) AS balance
-       FROM payments WHERE student_id=$1`, [studentId]
-    );
+    // Fee balance (M8): balance = owed now, upcoming = months not yet due
+    const fees = [await studentTotals(db, studentId)];
 
     // Semester and yearly averages and ranks (B2) instead of a GPA
     const r = await resultsOrNull(studentId);
@@ -239,23 +236,48 @@ const getChildFees = async (req, res) => {
     const owns = await verifyParentChild(req.user.id, studentId);
     if (!owns) return sendError(res, 'Access denied.', 403);
 
+    // The monthly view (D21, M8): this year's months with what is due, paid and open per
+    // fee, one-time and older (legacy term) charges, and the receipts.
+    const { rows: [yr] } = await db.query(
+      `SELECT ay.id, ay.name, ay.end_date FROM students s
+       JOIN academic_years ay ON ay.id = COALESCE((SELECT c.academic_year_id FROM classes c WHERE c.id = s.class_id),
+                                                 (SELECT id FROM academic_years WHERE is_current LIMIT 1))
+       WHERE s.id = $1`, [studentId]);
+    const { rows: charges } = yr ? await db.query(
+      `SELECT b.id, b.category, b.eth_month, b.net_due, b.paid, b.balance, b.status, b.due_date, b.description, b.legacy_term,
+              b.academic_year_id, (b.due_date < CURRENT_DATE AND b.balance > 0) AS overdue
+       FROM student_charge_balances b
+       WHERE b.student_id = $1 AND (b.academic_year_id = $2 OR (b.balance <> 0 AND b.status <> 'waived'))
+       ORDER BY b.eth_month NULLS LAST, b.category`, [studentId, yr.id]) : { rows: [] };
+    const months = [];
+    for (const c of charges.filter((x) => x.eth_month !== null && x.academic_year_id === yr.id)) {
+      let m = months.find((x) => x.eth_month === c.eth_month);
+      if (!m) months.push(m = { eth_month: c.eth_month, due_date: c.due_date, due: 0, paid: 0, balance: 0, overdue: false, charges: [] });
+      m.due += toCents(c.net_due); m.paid += toCents(c.paid); m.balance += toCents(c.balance);
+      m.overdue = m.overdue || c.overdue;
+      m.charges.push(c);
+    }
+    for (const m of months) {
+      m.status = m.charges.every((c) => c.status === 'waived') ? 'waived' : m.balance <= 0 ? 'paid' : m.paid > 0 ? 'partial' : 'unpaid';
+      for (const k of ['due', 'paid', 'balance']) m[k] = fromCents(m[k]);
+    }
     const { rows } = await db.query(
-      `SELECT term, category, amount_due, amount_paid,
-              amount_due-amount_paid AS balance,
-              payment_method, payment_date, receipt_number
-       FROM payments WHERE student_id=$1
-       ORDER BY payment_date DESC`, [studentId]
-    );
-
-    const totalDue  = rows.reduce((s,p)=>s+parseFloat(p.amount_due),0);
-    const totalPaid = rows.reduce((s,p)=>s+parseFloat(p.amount_paid),0);
+      `SELECT p.id, p.receipt_number, p.payment_method, p.payment_date, p.amount, p.reference,
+              p.term, p.category, p.amount_due, p.amount_paid, p.amount_due - p.amount_paid AS balance,
+              CASE WHEN p.reversed_at IS NULL THEN 'valid' ELSE 'reversed' END AS status,
+              (SELECT json_agg(json_build_object('amount', a.amount, 'category', c.category, 'eth_month', c.eth_month,
+                       'legacy_term', c.legacy_term) ORDER BY c.eth_month NULLS LAST, c.category)
+               FROM payment_allocations a JOIN student_charges c ON c.id = a.charge_id WHERE a.payment_id = p.id) AS lines
+       FROM payments p WHERE p.student_id = $1
+       ORDER BY p.payment_date DESC, p.created_at DESC`, [studentId]);
 
     return sendSuccess(res, {
-      overview: {
-        total_due: totalDue, total_paid: totalPaid,
-        balance: totalDue - totalPaid,
-        status: totalDue<=totalPaid ? 'paid' : totalPaid===0 ? 'unpaid' : 'partial',
-      },
+      overview: await studentTotals(db, studentId),
+      year: yr ? { id: yr.id, name: yr.name, end_date: yr.end_date, eth_year: ecYearOf(yr) } : null,
+      months,
+      one_time: charges.filter((c) => c.eth_month === null && !c.legacy_term && c.academic_year_id === yr?.id),
+      // Older charges: legacy term payments, and anything still open from another year
+      earlier: charges.filter((c) => c.legacy_term || c.academic_year_id !== yr?.id),
       payments: rows,
     }, 'Fees retrieved.');
   } catch (err) {
@@ -271,33 +293,25 @@ const getFamilyFees = async (req, res) => {
     const { rows } = await db.query(
       `SELECT s.id AS student_id, s.student_number,
               s.first_name || ' ' || s.last_name AS name,
-              c.name AS class_name,
-              COALESCE(SUM(pay.amount_due), 0)  AS total_due,
-              COALESCE(SUM(pay.amount_paid), 0) AS total_paid,
-              COUNT(pay.id)::int                AS payment_count
+              s.first_name_am, s.fathers_name_am, s.last_name_am,
+              c.name AS class_name
        FROM parents p
        JOIN student_parents sp ON sp.parent_id = p.id
        JOIN students s         ON s.id = sp.student_id
        LEFT JOIN classes c     ON c.id = s.class_id
-       LEFT JOIN payments pay  ON pay.student_id = s.id
        WHERE p.user_id = $1
-       GROUP BY s.id, s.student_number, s.first_name, s.last_name, c.name
        ORDER BY s.first_name`,
       [req.user.id]
     );
 
-    const children = rows.map(r => {
-      const due = parseFloat(r.total_due), paid = parseFloat(r.total_paid);
-      const status = !r.payment_count ? 'no_records'
-                   : due <= paid ? 'paid' : paid === 0 ? 'unpaid' : 'partial';
-      return { ...r, total_due: due, total_paid: paid, balance: due - paid, status };
-    });
-    const totalDue  = children.reduce((sum, c) => sum + c.total_due, 0);
-    const totalPaid = children.reduce((sum, c) => sum + c.total_paid, 0);
+    // M8: per child all charges; balance = owed now, upcoming = months not yet due (paid ahead or not)
+    const children = [];
+    for (const r of rows) children.push({ ...r, ...(await studentTotals(db, r.student_id)) });
+    const sum = (k) => fromCents(children.reduce((a, c) => a + toCents(c[k]), 0));
 
     return sendSuccess(res, {
       children,
-      family: { total_due: totalDue, total_paid: totalPaid, balance: totalDue - totalPaid },
+      family: { total_due: sum('total_due'), total_paid: sum('total_paid'), balance: sum('balance'), upcoming: sum('upcoming'), overdue: sum('overdue') },
     }, `Fees for ${children.length} child(ren).`);
   } catch (err) {
     return sendServerError(res, err, 'Server error.');

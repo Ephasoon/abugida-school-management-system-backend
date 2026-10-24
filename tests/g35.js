@@ -8,6 +8,7 @@
 // bad dates, ids and limits 400. Scratch DB backend on :3100.
 const pool = require('./tdb');
 const { localDate, addDays, useTodayYear, restoreFixtureYear } = require('./todayyear');
+const { legacyPayment, clearFees } = require('./fees');
 const API = 'http://localhost:3100/api';
 let pass = 0, fail = 0;
 const ok = (c, m, x = '') => { c ? pass++ : fail++; console.log(`  ${c ? 'PASS' : 'FAIL'}  ${m}${x ? '  ' + x : ''}`); };
@@ -91,11 +92,11 @@ const tag = Date.now().toString(36).slice(-5).toUpperCase();
       `${key}: one more 90-100 (95) and one more 50-59 (55); six bands in order`, JSON.stringify(bands));
     ok(Array.isArray(d.results.semester1?.bands) && Array.isArray(d.results.semester2?.bands), 'bands for both semesters');
 
-    // Fees: this year's payments only
-    await pool.query(`INSERT INTO payments (student_id, academic_year_id, term, category, amount_due, amount_paid)
-      VALUES ($1, $2, 'term1', 'tuition', 1000, 400), ($3, $2, 'term1', 'tuition', 500, 600)`, [a1, year.id, b1]);
+    // Fees: this year's charges only (legacy term charges, as migrated by 024)
+    await legacyPayment(pool, { student_id: a1, academic_year_id: year.id, due: 1000, paid: 400 });
+    await legacyPayment(pool, { student_id: b1, academic_year_id: year.id, due: 500, paid: 600 });
     const fy = (await pool.query("SELECT id FROM academic_years WHERE name = '2024/2025'")).rows[0].id;
-    await pool.query(`INSERT INTO payments (student_id, academic_year_id, term, category, amount_due, amount_paid) VALUES ($1, $2, 'term1', 'tuition', 9999, 0)`, [a2, fy]);
+    await legacyPayment(pool, { student_id: a2, academic_year_id: fy, due: 9999, paid: 0 });
     d = (await call(A, 'GET', '/dashboard/school')).body.data;
     const f = d.fees, f0 = before.fees;
     ok(f.expected === f0.expected + 1500 && f.collected === f0.collected + 1000 && f.outstanding === f0.outstanding + 600 && f.credit === f0.credit + 100 && f.students_owing === f0.students_owing + 1,
@@ -147,7 +148,7 @@ const tag = Date.now().toString(36).slice(-5).toUpperCase();
     ok((await call(P, 'GET', '/accounts/audit')).status === 403 && (await call(TA, 'GET', '/accounts/audit')).status === 403, 'principal and teacher -> 403');
   } finally {
     await restoreFixtureYear(call, A);
-    await pool.query('DELETE FROM payments WHERE student_id = ANY($1::uuid[])', [students]);
+    await clearFees(pool, students);
     await pool.query('DELETE FROM attendance WHERE student_id = ANY($1::uuid[])', [students]);
     await pool.query('DELETE FROM grades WHERE exam_id = ANY($1::uuid[])', [exams]);
     await pool.query('DELETE FROM exams WHERE id = ANY($1::uuid[])', [exams]);

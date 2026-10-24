@@ -19,6 +19,7 @@ const { readAmharicNames, amharicSet, STUDENT_AM } = require('../utils/amharicNa
 const { scopeCondition } = require('../utils/scope');
 const { isUuid }         = require('../middleware/validateIds.middleware');
 const { rateSql } = require('../utils/attendance');
+const { studentTotals } = require('../services/fees.service');
 const RATE   = rateSql();   // attendance rate (M4): late attended, excused left out
 
 const STUDENT_STATUSES = ['active', 'graduated', 'withdrawn', 'suspended'];
@@ -456,21 +457,13 @@ const getStudentSummary = async (req, res) => {
       [id]
     );
 
-    // Fee balance
-    const { rows: feeRows } = await db.query(
-      `SELECT
-         COALESCE(SUM(amount_due),  0) AS total_due,
-         COALESCE(SUM(amount_paid), 0) AS total_paid,
-         COALESCE(SUM(amount_due) - SUM(amount_paid), 0) AS balance
-       FROM payments
-       WHERE student_id = $1`,
-      [id]
-    );
+    // Fee balance (M8): all charges; balance = owed now, upcoming = months not yet due
+    const feeTotals = await studentTotals(db, id);
 
     return sendSuccess(res, {
       attendance:   attRows[0],
       recentGrades: gradeRows,
-      fees:         feeRows[0],
+      fees:         feeTotals,
     }, 'Student summary retrieved.');
 
   } catch (err) {

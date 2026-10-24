@@ -4,6 +4,7 @@
 //   GET /api/pdf/report-card/:studentId   → Report Card PDF
 //   GET /api/pdf/student-id/:studentId    → Student ID Card PDF
 //   GET /api/pdf/teacher-id/:teacherId    → Teacher ID Card PDF
+//   GET /api/pdf/receipt/:paymentId       → Payment receipt PDF (M8, G5)
 //   POST /api/pdf/bulk-ids               → Bulk ID Cards ZIP
 // ============================================================
 
@@ -12,7 +13,9 @@ const {
   generateReportCard,
   generateStudentIDCard,
   generateTeacherIDCard,
+  generateReceipt,
 } = require('../services/pdf.service');
+const { loadReceipt } = require('./finance.controller');
 const { sendError } = require('../utils/response');
 const { sendServerError } = require('../utils/errors');
 
@@ -133,7 +136,28 @@ const getTeacherIDCardPDF = async (req, res) => {
 };
 
 
+// ── GET /api/pdf/receipt/:paymentId ──────────────────────────
+// Admin and principal: any receipt. Parent: receipts of their own children (else 403).
+const getReceiptPDF = async (req, res) => {
+  try {
+    const receipt = await loadReceipt(db, req.params.paymentId);
+    if (!receipt) return sendError(res, 'Payment not found.', 404);
+    if (req.user.role === 'parent') {
+      const { rows } = await db.query(
+        `SELECT 1 FROM student_parents sp JOIN parents p ON p.id = sp.parent_id WHERE p.user_id = $1 AND sp.student_id = $2`,
+        [req.user.id, receipt.student_id]);
+      if (!rows.length) return sendError(res, 'Access denied.', 403);
+    }
+    await generateReceipt({ receipt, school: { name: process.env.SCHOOL_NAME || 'Äbugida School' } }, res);
+  } catch (err) {
+    if (!res.headersSent) return sendServerError(res, err, 'Server error.');
+    console.error('Receipt PDF failed after streaming started:', err);
+  }
+};
+
+
 module.exports = {
+  getReceiptPDF,
   getReportCardPDF,
   getStudentIDCardPDF,
   getTeacherIDCardPDF,

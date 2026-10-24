@@ -2,6 +2,22 @@
 
 Items agreed but not yet scheduled. Newest first.
 
+## Late fees
+
+*Added 2026-10-24 · backend + asms-web · not started (M8 decision: no late fees for now)*
+
+A late fee on charges still open some days after their due date (amount or percentage, per
+fee structure, with a grace period), added as its own charge so it can be waived. M8 only
+shows overdue charges (due date passed, balance > 0).
+
+## Automatic sibling discounts
+
+*Added 2026-10-24 · backend + asms-web · not started (D22: manual for now)*
+
+Apply a sibling discount automatically to brothers and sisters (students sharing a parent),
+e.g. 10% from the second child, instead of the admin entering each one. M8 discounts are
+entered manually per student and fee, with the reason "sibling".
+
 ## Ethiopian local time in Amharic mode
 
 *Added 2026-10-24 · asms-web · not started*

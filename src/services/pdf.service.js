@@ -5,12 +5,14 @@
 //   1. Report Card PDF — professional A4 academic report
 //   2. Student ID Card PDF — credit-card sized with QR code
 //   3. Teacher ID Card PDF
+//   4. Payment receipt PDF (M8, G5)
 // ============================================================
 
 const path        = require('path');
 const PDFDocument = require('pdfkit');
 const QRCode      = require('qrcode');
-const { academicYearEthiopian, formatEthiopian } = require('../utils/ethiopianDate');
+const { academicYearEthiopian, formatEthiopian, MONTHS } = require('../utils/ethiopianDate');
+const { toCents } = require('../utils/money');
 
 // ── Fonts (G9) ────────────────────────────────────────────────
 // Noto Sans Ethiopic (SIL OFL 1.1, assets/fonts/OFL.txt) has Ethiopic and
@@ -443,8 +445,117 @@ const generateTeacherIDCard = async (data, res) => {
 };
 
 
+// ═══════════════════════════════════════════════════════════════
+// 4. PAYMENT RECEIPT PDF (M8, G5): A5, English and Amharic, Ethiopian dates
+// ═══════════════════════════════════════════════════════════════
+// data: { receipt (finance.controller loadReceipt), school }. A reversed receipt keeps its
+// number and prints "Reversed" with the reason; its lines are shown struck through.
+const FEE_NAMES = {
+  tuition: 'Tuition · የትምህርት ክፍያ', registration: 'Registration · ምዝገባ', material: 'Materials · የትምህርት መሳሪያ',
+  exam: 'Exam · ፈተና', library: 'Library · ቤተ መጻሕፍት', sport: 'Sport · ስፖርት', uniform: 'Uniform · የደንብ ልብስ',
+  transport: 'Transport · ትራንስፖርት', other: 'Other · ሌላ',
+};
+const METHOD_NAMES = {
+  cash: 'Cash · ጥሬ ገንዘብ', telebirr: 'telebirr · ቴሌብር', cbe_birr: 'CBE Birr · ሲቢኢ ብር', mpesa: 'M-Pesa · ኤም-ፔሳ',
+  bank_transfer: 'Bank transfer · የባንክ ዝውውር', other: 'Other · ሌላ',
+};
+const TERM_NAMES = { term1: 'Term 1 · 1ኛ ተርም', term2: 'Term 2 · 2ኛ ተርም', term3: 'Term 3 · 3ኛ ተርም' };
+const etb = (v) => {
+  const c = Math.abs(toCents(v));
+  return `${String(Math.floor(c / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${String(c % 100).padStart(2, '0')} ETB`;
+};
+const receiptLineLabel = (l, ethYear) => {
+  const fee = FEE_NAMES[l.category] || l.category;
+  if (l.eth_month) return `${fee} — ${MONTHS.en[l.eth_month - 1]} · ${MONTHS.am[l.eth_month - 1]} ${ethYear ?? ''}`.trim();
+  if (l.legacy_term) return `${fee} — ${TERM_NAMES[l.legacy_term] || l.legacy_term}`;
+  return l.description ? `${fee} — ${l.description}` : fee;
+};
+
+const generateReceipt = async (data, res) => {
+  const { receipt: r, school } = data;
+  const doc = newDocument({ size: 'A5', margins: { top: 30, bottom: 30, left: 32, right: 32 } });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="receipt-${r.receipt_number}.pdf"`);
+  doc.pipe(res);
+
+  const W = doc.page.width;
+  const PL = 32;
+  const CW = W - PL * 2;
+  const reversed = r.status === 'reversed';
+  const yearEth = academicYearEthiopian(r.academic_year_end);
+
+  // Header
+  doc.rect(0, 0, W, 70).fill(COLORS.primary);
+  doc.rect(0, 70, W, 4).fill(COLORS.gold);
+  doc.font('Bold').fontSize(13).fillColor(COLORS.white).text(schoolLine(school), PL, 16, { width: CW });
+  doc.font('Body').fontSize(9).fillColor(COLORS.gold).text('PAYMENT RECEIPT · የክፍያ ደረሰኝ', PL, 40);
+  doc.font('Bold').fontSize(10).fillColor(COLORS.white).text(r.receipt_number, PL, 40, { width: CW, align: 'right' });
+
+  // Receipt facts
+  let y = 88;
+  const row = (label, value, opts = {}) => {
+    doc.font('Body').fontSize(7.5).fillColor(COLORS.gray).text(label, PL, y, { width: 120 });
+    doc.font(opts.bold ? 'Bold' : 'Body').fontSize(9).fillColor(COLORS.primary).text(value || '—', PL + 125, y - 1, { width: CW - 125 });
+    y = Math.max(doc.y, y + 12) + 3;
+  };
+  const nameAm = amharicName(r.first_name_am, r.fathers_name_am, r.last_name_am);
+  row('Student · ተማሪ', [r.first_name, r.fathers_name, r.last_name].filter(Boolean).join(' '), { bold: true });
+  if (nameAm) row('', nameAm);
+  row('Student ID · የተማሪ ቁጥር', r.student_number);
+  row('Class · ክፍል', r.class_name);
+  if (r.academic_year) row('School year · የትምህርት ዘመን', academicYearLabel(r.academic_year, r.academic_year_end));
+  row('Date paid · የተከፈለበት ቀን', `${formatEthiopian(r.payment_date)} · ${formatEthiopian(r.payment_date, 'am')}  (${r.payment_date})`);
+  row('Method · የክፍያ ዘዴ', METHOD_NAMES[r.payment_method] || r.payment_method);
+  if (r.reference) row('Reference · ማጣቀሻ', r.reference);
+
+  // What it paid
+  y += 6;
+  doc.rect(PL, y, CW, 18).fill(COLORS.light_gray);
+  doc.font('Bold').fontSize(8).fillColor(COLORS.primary)
+     .text('For · ለ', PL + 6, y + 5, { width: CW - 110 })
+     .text('Amount · መጠን', PL + CW - 100, y + 5, { width: 94, align: 'right' });
+  y += 22;
+  for (const l of r.lines) {
+    const label = receiptLineLabel(l, yearEth);
+    doc.font('Body').fontSize(8.5).fillColor(reversed ? COLORS.gray : COLORS.primary)
+       .text(label, PL + 6, y, { width: CW - 110, strike: reversed })
+       .text(etb(l.amount), PL + CW - 100, y, { width: 94, align: 'right', strike: reversed });
+    y = Math.max(doc.y, y + 12) + 4;
+    doc.rect(PL, y - 2, CW, 0.5).fill(COLORS.border);
+  }
+  y += 4;
+  doc.font('Bold').fontSize(11).fillColor(reversed ? COLORS.gray : COLORS.primary)
+     .text('Total · ጠቅላላ', PL + 6, y, { width: CW - 110 })
+     .text(etb(r.amount), PL + CW - 140, y, { width: 134, align: 'right', strike: reversed });
+  y = doc.y + 10;
+
+  if (reversed) {
+    doc.rect(PL, y, CW, 44).lineWidth(1.5).stroke(COLORS.red);
+    doc.font('Bold').fontSize(14).fillColor(COLORS.red).text('REVERSED · ተመልሷል', PL, y + 6, { width: CW, align: 'center' });
+    doc.font('Body').fontSize(7.5).fillColor(COLORS.red)
+       .text(`${r.reversed_at ? formatEthiopian(String(r.reversed_at instanceof Date ? r.reversed_at.toISOString() : r.reversed_at).slice(0, 10)) : ''}${r.reversal_reason ? ` — ${r.reversal_reason}` : ''}`,
+         PL + 8, y + 26, { width: CW - 16, align: 'center', lineBreak: false, ellipsis: true });
+    y += 54;
+  }
+  if (r.notes) {
+    doc.font('Body').fontSize(7.5).fillColor(COLORS.gray).text(`Note · ማስታወሻ: ${r.notes}`, PL, y, { width: CW });
+    y = doc.y + 6;
+  }
+
+  // Footer
+  const H = doc.page.height;
+  doc.font('Body').fontSize(7.5).fillColor(COLORS.gray)
+     .text(`Received by · የተቀበለው: ${r.recorded_by_name || '—'}`, PL, H - 70, { width: CW / 2 })
+     .text('Signature · ፊርማ: ____________________', PL + CW / 2, H - 70, { width: CW / 2, align: 'right' });
+  doc.font('Body').fontSize(6.5).fillColor(COLORS.gray)
+     .text(`Printed ${formatEthiopian(todayIso())} · ${r.receipt_number}`, PL, H - 44, { width: CW, align: 'center' });
+  doc.end();
+};
+
+
 module.exports = {
   generateReportCard,
   generateStudentIDCard,
   generateTeacherIDCard,
+  generateReceipt,
 };

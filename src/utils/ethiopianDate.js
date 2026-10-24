@@ -8,6 +8,7 @@
 //   toEthiopian('2026-10-14')         → { year: 2019, month: 2, day: 4 }
 //   formatEthiopian('2026-10-14')     → 'Tikimt 4, 2019 E.C.'
 //   formatEthiopian('2026-10-14', 'am') → 'ጥቅምት 4 2019 ዓ.ም.'
+//   toGregorian({ year: 2019, month: 2, day: 10 }) → '2026-10-20'
 // ============================================================
 
 const ETH_EPOCH = 1723856; // JDN of Meskerem 1, year 1, minus 365
@@ -33,6 +34,28 @@ const jdnToEthiopian = (jdn) => {
     month: div(n, 30) + 1,
     day: (n % 30) + 1,
   };
+};
+
+const jdnToGregorian = (jdn) => {
+  const a = jdn + 32044;
+  const b = div(4 * a + 3, 146097);
+  const c = a - div(146097 * b, 4);
+  const d = div(4 * c + 3, 1461);
+  const e = c - div(1461 * d, 4);
+  const m = div(5 * e + 2, 153);
+  return { year: 100 * b + d - 4800 + div(m, 10), month: m + 3 - 12 * div(m, 10), day: e - div(153 * m + 2, 5) + 1 };
+};
+
+const ethiopianToJdn = ({ year, month, day }) => ETH_EPOCH + 365 + 365 * (year - 1) + div(year, 4) + 30 * month + day - 31;
+const pad = (n) => String(n).padStart(2, '0');
+
+/** Pagume has 6 days in the year before a Gregorian leap year (year % 4 === 3), else 5. */
+const ethiopianMonthLength = (year, month) => (month < 13 ? 30 : (year % 4 === 3 ? 6 : 5));
+
+/** { year, month, day } (Ethiopian) → 'YYYY-MM-DD' (Gregorian). */
+const toGregorian = (eth) => {
+  const g = jdnToGregorian(ethiopianToJdn(eth));
+  return `${g.year}-${pad(g.month)}-${pad(g.day)}`;
 };
 
 /** 'YYYY-MM-DD' or a Date → { year, month, day } (Ethiopian); null if not a date. */
@@ -66,4 +89,4 @@ const formatEthiopian = (value, lang = 'en') => {
  */
 const academicYearEthiopian = (endDate) => toEthiopian(endDate)?.year ?? null;
 
-module.exports = { toEthiopian, formatEthiopian, academicYearEthiopian, MONTHS };
+module.exports = { toEthiopian, toGregorian, ethiopianMonthLength, formatEthiopian, academicYearEthiopian, MONTHS };
