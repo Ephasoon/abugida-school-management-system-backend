@@ -95,7 +95,13 @@ const lastAudit = async (action, targetId) => (await pool.query(
     ok(r.status === 200 && r.body.data.all_slots.length === 2 && r.body.data.all_slots.every((s) => s.academic_year_id === thisYear.id && s.class_id),
       "teacher B's timetable of this test year: 2 slots with class and year", String(r.body?.data?.all_slots?.length));
     ok((await call(A, 'GET', `/timetable/teacher/${G.tB.tid}?academic_year_id=x`)).status === 400, 'bad academic_year_id -> 400');
+    r = await call(A, 'PUT', `/timetable/${s1}`, { room: 'R9', end_time: '08:30' });
+    ok(r.status === 200 && r.body.data.room === 'R9', 'a slot that already clashes: room and times can still change (teacher kept)', msg(r));
+    await call(A, 'PUT', `/timetable/${s1}`, { teacher_id: null });
+    r = await call(A, 'PUT', `/timetable/${s1}`, { teacher_id: G.tB.tid });
+    ok(r.status === 409 && /Grade 5 Section B/.test(r.body?.message), 'putting teacher B back into the clash -> 409', msg(r));
     await pool.query('DELETE FROM timetable WHERE class_id = $1', [c5B]);
+    await call(A, 'PUT', `/timetable/${s1}`, { teacher_id: G.tB.tid, room: null });
 
     console.log('== Copy');
     // 5A this year: Monday 1 (teacher B), Tuesday 2 (teacher Abebe), Wednesday 3 (Art, no teacher), Saturday 1

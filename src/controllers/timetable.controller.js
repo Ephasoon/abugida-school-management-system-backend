@@ -422,9 +422,12 @@ const updateSlot = async (req, res) => {
     });
     if (bad) return sendError(res, bad.message, 400, { field: bad.field });
 
-    // The slot as it will be, checked like a new one (itself excluded)
+    // The slot as it will be, checked like a new one (itself excluded). The teacher is checked
+    // only when the teacher, day or period changes: a slot that already clashes (old data) can
+    // still get another room or times; the conflicts list shows the clash until it is resolved.
+    const moved = next.teacher_id !== cur.teacher_id || next.day !== cur.day || next.period !== cur.period;
     const conflict = await findConflict({
-      classId: cur.class_id, teacherId: next.teacher_id, day: next.day, period: next.period, excludeId: id,
+      classId: cur.class_id, teacherId: moved ? next.teacher_id : null, day: next.day, period: next.period, excludeId: id,
     });
     if (conflict) return sendError(res, conflict, 409);
 
