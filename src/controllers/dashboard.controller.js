@@ -12,6 +12,7 @@ const { sendSuccess, sendError } = require('../utils/response');
 const { sendServerError } = require('../utils/errors');
 const { rateSql }         = require('../utils/attendance');
 const { SEMESTERS, SCORE_BANDS, bandOf, classResults } = require('../services/results.service');
+const { totalsSql } = require('../services/fees.service');
 
 const RATE_A = rateSql('a');
 const UPCOMING_DAYS = 14;
@@ -195,19 +196,8 @@ const getSchoolDashboard = async (req, res) => {
       results[sem] = { complete, incomplete, bands: SCORE_BANDS.map((b) => ({ band: b.key, count: bands[b.key] })) };
     }
 
-    // This year's fees (current payments; the monthly view comes with M8)
-    const { rows: fees } = await db.query(
-      `WITH per_student AS (
-         SELECT student_id, SUM(amount_due) AS due, SUM(amount_paid) AS paid
-         FROM payments WHERE academic_year_id = $1 GROUP BY student_id
-       )
-       SELECT COALESCE(SUM(due), 0)  AS expected,
-              COALESCE(SUM(paid), 0) AS collected,
-              COALESCE(SUM(GREATEST(due - paid, 0)), 0) AS outstanding,
-              COALESCE(SUM(GREATEST(paid - due, 0)), 0) AS credit,
-              COUNT(*) FILTER (WHERE due > paid)::int  AS students_owing,
-              ROUND(COALESCE(SUM(paid), 0) * 100 / NULLIF(COALESCE(SUM(due), 0), 0), 1) AS collection_rate
-       FROM per_student`, [year.id]);
+    // This year's fees (M8: charges; outstanding = owed now, upcoming = months not yet due)
+    const { rows: fees } = await db.query(totalsSql('b.academic_year_id = $1'), [year.id]);
     const f = fees[0];
 
     return sendSuccess(res, {
@@ -217,8 +207,9 @@ const getSchoolDashboard = async (req, res) => {
       upcoming_exams: { days: UPCOMING_DAYS, exams: upcoming },
       results,
       fees: {
-        expected: Number(f.expected), collected: Number(f.collected), outstanding: Number(f.outstanding),
-        credit: Number(f.credit), students_owing: f.students_owing,
+        expected: Number(f.total_expected), collected: Number(f.total_collected), outstanding: Number(f.total_outstanding),
+        credit: Number(f.total_credit), upcoming: Number(f.total_upcoming), overdue: Number(f.total_overdue),
+        students_owing: f.students_owing,
         collection_rate: f.collection_rate === null ? null : Number(f.collection_rate),
       },
     }, 'School dashboard retrieved.');

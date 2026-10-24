@@ -49,7 +49,7 @@ This is the source of truth for who may do what. Every API route must match it.
 | 1 | Existing parent without a login | Admin can create one: `POST /api/accounts/parents/:parentId/login` | ✅ |
 | 2 | Deactivating parents | Admin can deactivate and reactivate parent accounts, with the same immediate cut-off as teachers and principals: `PUT /api/accounts/parents/:parentId/status` | ✅ |
 | 3 | Internal staff notes | Hidden from students and parents (`notes` is removed from their student records) | ✅ (no change needed) |
-| 4 | Finance "Outstanding" | Sum of per-student debts (`total_outstanding`), plus `total_credit` (overpayments) and `net_balance` (due − paid) | ✅ |
+| 4 | Finance "Outstanding" | Sum of per-student debts (`total_outstanding`), plus `total_credit` (overpayments) and `net_balance` (due − paid). Since M8 over charges: outstanding = owed **now** (charges due by today, plus legacy and one-time charges without a date); `total_upcoming` = months not yet due (charged up front); net = expected − collected = outstanding − credit + upcoming. Credit comes only from migrated term payments: new payments above what is open are refused | ✅ |
 | 5 | Graduated students | Their login is disabled; admins issue transcripts and report cards on request | ✅ (no change needed) |
 | 6 | Exam dates | `exam_date` is always required (for assignments it is the due date). `POST /api/exam-schedule` is the exam-creation endpoint; `POST /api/grades/exams` is deprecated | ✅ (no change needed) |
 
@@ -102,6 +102,23 @@ Now (Phase 1 + M4, tested in g13 and g24):
 | `GET /accounts/audit` | admin |
 | `PUT /settings/period_times` | admin (audited), like the other settings |
 
+### `/api/finance` (M8: monthly fees, PHASE2_PLAN §5.3)
+| Route | Access |
+|---|---|
+| `GET /fee-structures?academic_year_id=` | admin, principal |
+| `POST /fee-structures`, `PUT /fee-structures/:id`, `DELETE /fee-structures/:id` | admin (audited). One fee per category and grade (a fee for all grades excludes grade fees of the same category, 409). Amount changes apply to charges with nothing paid; months with payments cannot be removed; grade, category and frequency are fixed once charges exist; delete only when nothing was ever paid on its charges |
+| `GET /fee-structures/:id/generate` (preview), `POST` (run) | admin (run audited). Charges for the whole year for active students of the fee's year and grade; idempotent |
+| `GET /charges?student_id=&academic_year_id=&eth_month=&class_id=&status=&category=` | admin, principal |
+| `POST /charges` (manual, with a description), `POST /charges/:id/waive` (reason) | admin (audited) |
+| `GET /discounts` | admin, principal |
+| `POST /discounts`, `PUT /discounts/:id`, `DELETE /discounts/:id` | admin (audited, before and after). Recalculate unpaid amounts only; never below what is paid |
+| `POST /payments` | admin (audited). `allocations: [{ charge_id, amount }]`, one student and year, no overpayment (409), reference required except cash. Receipt `RCP-<E.C. year>-00001`, sequential without gaps. The old term shape still works (no overpayment either) |
+| `GET /payments`, `GET /payments/:id` (receipt) | admin, principal |
+| `POST /payments/:id/reverse` (reason) | admin (audited). No deletion of payments; a reversed receipt keeps its number |
+| `GET /summary`, `/outstanding`, `/student/:studentId`, `/unpaid` | admin, principal |
+| `GET /pdf/receipt/:paymentId` (G5) | admin, principal, parent (own children; 403 otherwise) |
+| `GET /parent/fees`, `/parent/child/:id/fees` | parent (own children): monthly view (D21) |
+
 ### `/api/results`, `/api/settings` (M5a)
 | Route | Access |
 |---|---|
@@ -133,7 +150,7 @@ Now (Phase 1 + M4, tested in g13 and g24):
 ### `/api/finance`
 | Route | Current access | Verdict |
 |---|---|---|
-| all | admin | ✅ admin; ❌ principal view-only missing |
+| all | admin | ✅ admin; ❌ principal view-only missing (done in Phase 1; M8 routes above) |
 
 ### `/api/parent`
 | Route | Current access | Verdict |

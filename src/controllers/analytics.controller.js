@@ -4,6 +4,7 @@ const { sendSuccess, sendError } = require('../utils/response');
 const { sendServerError } = require('../utils/errors');
 const { rateSql } = require('../utils/attendance');
 const { SEMESTERS, SCORE_BANDS, bandOf, classResults } = require('../services/results.service');
+const { totalsSql } = require('../services/fees.service');
 const RATE   = rateSql();   // attendance rate (M4): late attended, excused left out
 const RATE_A = rateSql('a');   // attendance rate (M4): late attended, excused left out
 
@@ -34,21 +35,9 @@ const getOverview = async (req, res) => {
       `SELECT ${RATE} AS rate
        FROM attendance WHERE date >= date_trunc('month', CURRENT_DATE)`
     );
-    // Same definitions as GET /api/finance/summary (per-student balances)
-    const { rows: fin } = await db.query(
-      `WITH per_student AS (
-         SELECT student_id, SUM(amount_due) AS due, SUM(amount_paid) AS paid
-         FROM payments GROUP BY student_id
-       )
-       SELECT COALESCE(SUM(due),0)  AS total_expected,
-              COALESCE(SUM(paid),0) AS total_collected,
-              COALESCE(SUM(GREATEST(due - paid, 0)),0) AS total_outstanding,
-              COALESCE(SUM(GREATEST(due - paid, 0)),0) AS outstanding,
-              COALESCE(SUM(GREATEST(paid - due, 0)),0) AS total_credit,
-              COALESCE(SUM(due) - SUM(paid),0)         AS net_balance,
-              ROUND(COALESCE(SUM(paid),0)*100/NULLIF(COALESCE(SUM(due),0),0),1) AS collection_rate
-       FROM per_student`
-    );
+    // Same definitions as GET /api/finance/summary (fees.service totalsSql), over all years
+    const { rows: fin } = await db.query(totalsSql());
+    fin[0].outstanding = fin[0].total_outstanding;
     const { rows: gr } = await db.query(
       `SELECT ROUND(AVG(g.score/e.max_score*100),1) AS avg_score,
               COUNT(DISTINCT g.student_id) AS graded_students,
@@ -191,21 +180,20 @@ const getGradeAnalytics = async (req, res) => {
 // GET /api/analytics/finance
 const getFinanceAnalytics = async (req, res) => {
   try {
+    // Payments (receipts) not reversed; charges for expected / collected per category
     const { rows: monthly } = await db.query(
       `SELECT TO_CHAR(payment_date,'YYYY-MM') AS month,
-         SUM(amount_paid) AS collected, COUNT(*) AS transactions
-       FROM payments WHERE payment_date >= NOW()-INTERVAL '6 months'
+         SUM(amount) AS collected, COUNT(*) AS transactions
+       FROM payments WHERE payment_date >= NOW()-INTERVAL '6 months' AND reversed_at IS NULL
        GROUP BY TO_CHAR(payment_date,'YYYY-MM') ORDER BY month`
     );
     const { rows: byMethod } = await db.query(
-      `SELECT payment_method, COUNT(*) AS transactions, SUM(amount_paid) AS total
-       FROM payments GROUP BY payment_method ORDER BY total DESC`
+      `SELECT payment_method, COUNT(*) AS transactions, SUM(amount) AS total
+       FROM payments WHERE reversed_at IS NULL GROUP BY payment_method ORDER BY total DESC`
     );
     const { rows: byCategory } = await db.query(
-      `SELECT category, SUM(amount_due) AS expected,
-         SUM(amount_paid) AS collected,
-         SUM(amount_due)-SUM(amount_paid) AS outstanding
-       FROM payments GROUP BY category ORDER BY expected DESC`
+      `SELECT category, SUM(net_due) AS expected, SUM(paid) AS collected, SUM(balance) AS outstanding
+       FROM student_charge_balances GROUP BY category ORDER BY expected DESC`
     );
     return sendSuccess(res, { monthly_trend: monthly, by_method: byMethod, by_category: byCategory },
       'Finance analytics retrieved.');

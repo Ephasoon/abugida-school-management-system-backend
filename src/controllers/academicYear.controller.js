@@ -19,6 +19,7 @@ const { sendServerError } = require('../utils/errors');
 const { audit }         = require('../utils/audit');
 const { inTransaction } = require('../utils/transaction');
 const { LockedError, assertYearUnlocked } = require('../services/locks.service');
+const { totalsSql } = require('../services/fees.service');
 
 // Dates are 'YYYY-MM-DD' strings (see config/db.js), so they compare as text.
 const isIsoDate = (d) =>
@@ -283,6 +284,7 @@ const deleteAcademicYear = async (req, res) => {
               (SELECT COUNT(*) FROM exams          WHERE academic_year_id = $1)::int AS exams,
               (SELECT COUNT(*) FROM fee_structures WHERE academic_year_id = $1)::int AS fee_structures,
               (SELECT COUNT(*) FROM payments       WHERE academic_year_id = $1)::int AS payments,
+              (SELECT COUNT(*) FROM student_charges WHERE academic_year_id = $1)::int AS charges,
               (SELECT COUNT(*) FROM promotion_runs WHERE $1 IN (from_year_id, to_year_id))::int AS promotions`, [id]);
     const used = Object.entries(use).filter(([, n]) => n > 0);
     if (used.length) {
@@ -346,15 +348,7 @@ const getYearStats = async (req, res) => {
       [id]
     );
 
-    const { rows: finStats } = await db.query(
-      `SELECT
-         COALESCE(SUM(amount_due),0)  AS total_expected,
-         COALESCE(SUM(amount_paid),0) AS total_collected,
-         ROUND(COALESCE(SUM(amount_paid),0)*100/
-           NULLIF(COALESCE(SUM(amount_due),0),0),1) AS collection_rate
-       FROM payments WHERE academic_year_id=$1`,
-      [id]
-    );
+    const { rows: finStats } = await db.query(totalsSql('b.academic_year_id = $1'), [id]);
 
     return sendSuccess(res, {
       year:     yr[0],

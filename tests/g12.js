@@ -86,7 +86,11 @@ const sec = process.argv[2];   // optional: run one section (1, 2 or 4)
       let s = await sum(A);
       ok(+s.total_expected === 23600 && +s.total_collected === 22600 && +s.total_outstanding === 1000 && +s.net_balance === 1000 && +s.total_credit === 0,
         'no overpayment: outstanding = net = 1,000, credit 0', `${s.total_outstanding}/${s.net_balance}/${s.total_credit}`);
-      await pay(G.s2.sid, 0, 300);   // S2 overpays by 300
+      // Since M8 a new payment above what is due is refused; credit comes only from migrated
+      // term payments (024), so the 300 overpayment is set up as such a legacy charge
+      const over = await pay(G.s2.sid, 0, 300);
+      ok(over.status === 409, 'old-page payment above amount_due -> 409 (no overpayment)', String(over.status));
+      await require('./fees').legacyPayment(pool, { student_id: G.s2.sid, academic_year_id: y.body.data.id, due: 0, paid: 300 });
       s = await sum(A);
       ok(+s.total_outstanding === 1000, 'after a 300 overpayment: outstanding still 1,000 (debt not hidden)', s.total_outstanding);
       ok(+s.total_credit === 300 && +s.net_balance === 700, 'credit 300, net 700', `${s.total_credit} / ${s.net_balance}`);

@@ -5,9 +5,10 @@ const {
   getReportCardPDF,
   getStudentIDCardPDF,
   getTeacherIDCardPDF,
+  getReceiptPDF,
 } = require('../controllers/pdf.controller');
 const { authenticate }              = require('../middleware/auth.middleware');
-const { adminOnly, allAuthenticated } = require('../middleware/role.middleware');
+const { adminOnly, allAuthenticated, authorize } = require('../middleware/role.middleware');
 const { requireStudentAccess } = require('../middleware/studentAccess.middleware');
 const { validateIds } = require('../middleware/validateIds.middleware');
 
@@ -28,5 +29,8 @@ router.get('/student-id/:studentId', adminOnly, checkIds, getStudentIDCardPDF);
 
 // Teacher ID Card — admin only
 router.get('/teacher-id/:teacherId', adminOnly, checkIds, getTeacherIDCardPDF);
+
+// Payment receipt (M8, G5) — admin, principal, or a parent of the student (checked in the controller)
+router.get('/receipt/:paymentId', authorize('admin', 'principal', 'parent'), validateIds({ paymentId: 'payments' }), getReceiptPDF);
 
 module.exports = router;
