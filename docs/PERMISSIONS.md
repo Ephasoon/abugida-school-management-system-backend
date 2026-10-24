@@ -15,7 +15,7 @@ This is the source of truth for who may do what. Every API route must match it.
 | Exams/grades enter | yes | no | own class+subject | no | no |
 | Grades/report cards view | all | all | own classes | own children | self |
 | Finance | full | view only | none | own children's fees | none |
-| Documents | all | all | own uploads + public | none | none |
+| Documents | all | all | own uploads + shared ones (not about a student, or about a student of own classes) | none | none |
 | Academic years/timetable setup | yes | view | own timetable | no | own timetable |
 | User accounts/passwords | yes | own password | own password | own password | own password |
 
@@ -38,6 +38,7 @@ This is the source of truth for who may do what. Every API route must match it.
 | Exam schedules (reads) | Same as grades view: admin + principal all; teacher own classes; parent own children's classes; student own class. Writes stay admin-only. |
 | ID card PDFs | Admin only (student and teacher ID cards). |
 | Principal and documents | View and download all documents (including private), and upload. Delete stays admin-only. |
+| Documents (M9, 2026-10-24) | A teacher uploads only for students of their own classes and sees shared student documents only of those students. The uploader may edit their document's details (title, category, description, private/shared); admin edits all. Delete stays admin-only. Parents and students see no documents (backlog: parents see shared documents of their own children). |
 | Parent fees | New all-children endpoint (balance per child plus a family total); the per-child endpoint stays. |
 | Principal accounts | Admin creates them (email + display name, temporary password, forced change). |
 | Parents per student | No limit. At most one parent per student can be the primary contact (already enforced by the database). |
@@ -118,6 +119,16 @@ Now (Phase 1 + M4, tested in g13 and g24):
 | `GET /summary`, `/outstanding`, `/student/:studentId`, `/unpaid` | admin, principal |
 | `GET /pdf/receipt/:paymentId` (G5) | admin, principal, parent (own children; 403 otherwise) |
 | `GET /parent/fees`, `/parent/child/:id/fees` | parent (own children): monthly view (D21) |
+
+### `/api/documents` (M9)
+| Route | Access |
+|---|---|
+| `GET /`, `/categories`, `/:id`, `/download/:id` | admin, principal (all); teacher (own uploads; shared documents not about a student or about a student of own classes; 404 otherwise). Search: title, description, file name, student name and number. Filters: category, student_id, teacher_id, is_private, mine |
+| `GET /student/:studentId` | admin, principal; teacher for students of own classes (403 otherwise) |
+| `GET /limits` | staff: allowed types, 10 MB, categories |
+| `POST /upload` | admin, principal, teacher (a student of own classes, or no student; 403 otherwise). Audited. The content must match the declared type (400). 12 categories (+ transfer letter, report card, national exam result) |
+| `PUT /:id` | admin, or the uploader (403 otherwise); audited with the old values |
+| `DELETE /:id` | admin; audited with what was deleted; the row first, then the file |
 
 ### `/api/results`, `/api/settings` (M5a)
 | Route | Access |

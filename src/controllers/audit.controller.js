@@ -49,6 +49,7 @@ const getAuditLog = async (req, res) => {
                 WHEN 'class'   THEN cl.name || ' (' || cy.name || ')'
                 WHEN 'subject' THEN su.name
                 WHEN 'academic_year' THEN ay.name
+                WHEN 'document' THEN dc.title
                 WHEN 'user'    THEN ${USER_NAME('tu', 'tut', 'tup')}
               END AS target_label,
               CASE a.target_type
@@ -68,6 +69,7 @@ const getAuditLog = async (req, res) => {
        LEFT JOIN academic_years cy ON cy.id = cl.academic_year_id
        LEFT JOIN subjects su      ON a.target_type = 'subject' AND su.id = a.target_id
        LEFT JOIN academic_years ay ON a.target_type = 'academic_year' AND ay.id = a.target_id
+       LEFT JOIN documents dc ON a.target_type = 'document' AND dc.id = a.target_id
        LEFT JOIN users tu         ON a.target_type = 'user'    AND tu.id = a.target_id
        LEFT JOIN teachers tut     ON tut.user_id = tu.id
        LEFT JOIN parents tup      ON tup.user_id = tu.id

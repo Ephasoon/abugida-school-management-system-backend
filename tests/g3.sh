@@ -25,10 +25,12 @@ for ep in /finance/summary /finance/payments /finance/unpaid /finance/student/$S
 ok $(code "$(req POST /finance/payments "$TA" '{}')") 403 "teacher POST /finance/payments"
 ok $(code "$(req GET /finance/summary "$AT")") 200 "admin GET /finance/summary"
 
-echo "== Private documents: admin + uploader"
-up(){ js "$(cd $S && curl -s -H "Authorization: Bearer $1" -F "file=@sample.pdf;type=application/pdf" -F "title=$2" -F category=report -F is_private=$3 -F student_id=$S1 http://localhost:3100/api/documents/upload)" "r.data.id"; }
+echo "== Private documents: admin + uploader; teachers only for students of their own classes (M9)"
+# up <token> <title> <private> [student_id, default S1; "none" for no student]
+upraw(){ local st=${4:-$S1}; [ "$st" = none ] && st=""; (cd $S && curl -s -H "Authorization: Bearer $1" -F "file=@sample.pdf;type=application/pdf" -F "title=$2" -F category=report -F is_private=$3 ${st:+-F student_id=$st} http://localhost:3100/api/documents/upload); }
+up(){ js "$(upraw "$@")" "r.data.id"; }
 printf '%%PDF-1.4\n%%test\n' > $S/sample.pdf
-DA_PRIV=$(up "$TA" "A private" true); DA_PUB=$(up "$TA" "A public" false); DB_PRIV=$(up "$TB" "B private" true)
+DA_PRIV=$(up "$TA" "A private" true); DA_PUB=$(up "$TA" "A public" false); DB_PRIV=$(up "$TB" "B private" true none); DA_GEN=$(up "$TA" "A public general" false none)
 titles(){ js "$(req GET "$1" "$2")" "(r.data.documents||r.data).map(d=>d.title).sort().join(' | ')"; }
 echo "  teacher A list:        $(titles /documents "$TA")"
 echo "  teacher B list:        $(titles /documents "$TB")"
@@ -38,7 +40,10 @@ echo "  teacher A categories (report count): $(js "$(req GET /documents/categori
 ok $(code "$(req GET /documents/$DB_PRIV "$TA")") 404 "teacher A GET B's private doc"
 ok "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TA" localhost:3100/api/documents/download/$DB_PRIV)" 404 "teacher A download B's private doc"
 ok "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TA" localhost:3100/api/documents/download/$DA_PRIV)" 200 "teacher A download own private doc"
-ok "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TB" localhost:3100/api/documents/download/$DA_PUB)" 200 "teacher B download A's public doc"
+ok "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TB" localhost:3100/api/documents/download/$DA_PUB)" 404 "teacher B download A's shared doc about a student not in B's classes"
+ok "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TB" localhost:3100/api/documents/download/$DA_GEN)" 200 "teacher B download A's shared doc not about a student"
+ok "$(cd $S && curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TB" -F "file=@sample.pdf;type=application/pdf" -F "title=B for S1" -F category=report -F student_id=$S1 http://localhost:3100/api/documents/upload)" 403 "teacher B upload for a student not in B's classes"
+ok $(code "$(req GET /documents/student/$S1 "$TB")") 403 "teacher B GET documents of a student not in B's classes"
 ok "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $AT" localhost:3100/api/documents/download/$DB_PRIV)" 200 "admin download B's private doc"
 
 echo "== Grade writes limited to assigned class+subject"
