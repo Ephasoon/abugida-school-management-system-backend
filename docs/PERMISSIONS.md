@@ -90,6 +90,18 @@ Now (Phase 1 + M4, tested in g13 and g24):
 - Class sheet, report (`?from=&to=`, at most 62 days, or the older `?month=&year=`): admin, principal, teacher (own classes, any year). The sheet's `marking` field says whether the requester may mark that class on that date.
 - Student history: admin, principal, teacher (students of own classes), student (self), parent (own children).
 
+### Subjects, timetable, school dashboard, audit log (M7)
+| Route | Access |
+|---|---|
+| `GET /subjects?status=` | admin, principal, teacher (reference data, with usage counts) |
+| `POST /subjects`, `PUT /subjects/:id`, `DELETE /subjects/:id` | admin (audited). Delete only an unused subject (409 otherwise: deactivate it with `is_active: false`). An inactive subject is refused (400) for new timetable slots, class assignments, teacher subject lists and exams; its existing data stays |
+| `POST /timetable/copy` | admin (audited): only into a class without slots; teachers kept only when free in the target's year |
+| `GET /timetable/conflicts?class_id=` | admin, principal |
+| `POST /timetable`, `PUT /timetable/:id`, `DELETE /timetable/:id` | admin, now audited (`timetable.slot_created`, `_updated`, `_deleted`) |
+| `GET /dashboard/school` | admin, principal (current year only, fees included) |
+| `GET /accounts/audit` | admin |
+| `PUT /settings/period_times` | admin (audited), like the other settings |
+
 ### `/api/results`, `/api/settings` (M5a)
 | Route | Access |
 |---|---|
