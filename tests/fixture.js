@@ -11,8 +11,7 @@ const pool = require('./tdb');
        values ($1,$2,$3,$4,'midterm',$5) returning id`, [cls, sub, ay, 'Mid '+t, t])).rows[0].id;
     await pool.query('insert into grades (student_id,exam_id,score) values ($1,$2,$3)', [st, ex, sc]);
   }
-  await pool.query(`insert into payments (student_id,academic_year_id,term,category,amount_due,amount_paid)
-     values ($1,$2,'term1','tuition',3500,1000)`, [st, ay]);
+  await require('./fees').legacyPayment(pool, { student_id: st, academic_year_id: ay, due: 3500, paid: 1000 });
   await pool.query(`insert into attendance (student_id,class_id,date,status) values ($1,$2,'2026-10-01','present'),($1,$2,'2026-10-02','absent')`, [st, cls]);
   console.log('student', st); await pool.end();
 })().catch(e => { console.error(e.message); process.exit(1); });
