@@ -2,6 +2,15 @@
 
 Items agreed but not yet scheduled. Newest first.
 
+## Outstanding report for a past year: group by the class in that year
+
+*Added 2026-10-24 · backend · not started*
+
+The outstanding report for a past year should group students by their class in that year
+(from the charges' year), not their current class. E.g. Dawit Tadesse shows under Grade 9A
+in the 2024/2025 report; he was in 8A. `GET /finance/outstanding` joins `students.class_id`
+today.
+
 ## Late fees
 
 *Added 2026-10-24 · backend + asms-web · not started (M8 decision: no late fees for now)*
