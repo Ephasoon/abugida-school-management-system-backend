@@ -2,6 +2,21 @@
 
 Items agreed but not yet scheduled. Newest first.
 
+## Parents see shared documents of their own children
+
+*Added 2026-10-24 · backend + asms-web · not started (M9: parents and students see no documents)*
+
+On the parent portal, the shared (not private) documents of the parent's own children, read-only
+with download, e.g. a report card or a national exam result. Private documents stay staff-only.
+
+## Teacher documents tab
+
+*Added 2026-10-24 · asms-web · not started*
+
+A Documents tab on the teacher profile for documents linked to the teacher (`documents.teacher_id`,
+e.g. contracts, certificates), with upload pre-linked to the teacher. The backend already accepts
+`teacher_id` on upload and as a list filter; no document uses it yet.
+
 ## Outstanding report for a past year: group by the class in that year
 
 *Added 2026-10-24 · backend · not started*

@@ -1,6 +1,6 @@
-// Delete files uploaded during tests: only paths recorded in the scratch DB, only under uploads/documents.
+// Delete files uploaded during tests: only paths recorded in the scratch DB, only under tests/uploads/documents.
 const pool = require('./tdb'); const fs = require('fs'); const path = require('path');
-const ROOT = path.join(__dirname, '..', 'uploads', 'documents');
+const ROOT = require('./uploadDir');
 (async () => {
   const { rows } = await pool.query('SELECT file_path FROM documents');
   let n = 0;

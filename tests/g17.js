@@ -52,7 +52,7 @@ const form = (fields) => {
   const examId = (await pool.query("SELECT id FROM exams WHERE class_id = $1 AND subject_id = $2 LIMIT 1", [G.c9A, G.math])).rows[0]?.id;
   let slotId = (await pool.query('SELECT id FROM timetable LIMIT 1')).rows[0]?.id;
   const feeId = (await pool.query('SELECT id FROM fee_structures LIMIT 1')).rows[0]?.id;
-  const uploadsBefore = fs.readdirSync(path.join(__dirname, '..', 'uploads', 'documents')).length;
+  const uploadsBefore = fs.readdirSync(require('./uploadDir')).length;
   await pool.query("UPDATE users SET is_active = TRUE, must_change_password = FALSE WHERE email = ANY($1)", [[G.tA.email, G.tB.email]]);
 
   const A = await login('admin@asms.et', 'Admin@1234');
@@ -107,7 +107,7 @@ const form = (fields) => {
   // Nothing was written by the refused requests
   const leftovers = (await pool.query('SELECT (SELECT COUNT(*) FROM students WHERE first_name = $1)::int s, (SELECT COUNT(*) FROM exams WHERE name = $1)::int e, (SELECT COUNT(*) FROM documents WHERE title = $1)::int d', [TAG])).rows[0];
   check(leftovers.s === 0 && leftovers.e === 0 && leftovers.d === 0, 'refused requests wrote nothing (students, exams, documents)', JSON.stringify(leftovers));
-  const uploadsAfter = fs.readdirSync(path.join(__dirname, '..', 'uploads', 'documents')).length;
+  const uploadsAfter = fs.readdirSync(require('./uploadDir')).length;
   check(uploadsAfter === uploadsBefore, 'refused uploads leave no file behind', `${uploadsBefore} -> ${uploadsAfter}`);
 
   // A refused file type is 400, not 500 (multer's filter error)
