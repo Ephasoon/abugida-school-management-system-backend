@@ -7,8 +7,8 @@ Items agreed but not yet scheduled. Newest first.
 *Added 2026-10-24 · backend tests · not started*
 
 Fix or retire with M10 (the old frontend retires then):
-- g5b: "showTab is not defined" (the harness evaluates before the page script has loaded).
-- g22: audit entry order (entries written in the same instant come back in any order).
+- g5b: "showTab is not defined" (cause not yet looked into).
+- g22: audit entry order ("create and edits audited" saw class.updated before class.created).
 - g5, g6, g9 (old frontend): pages wait for Google Fonts and time out when they cannot load.
 
 ## Parents see shared documents of their own children
