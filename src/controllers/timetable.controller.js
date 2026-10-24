@@ -156,9 +156,13 @@ const createSlot = async (req, res) => {
 
 // ── POST /api/timetable/copy ─────────────────────────────────
 // { from_class_id, to_class_id }: copies every slot (subject, day, period, times, room) of
-// one class into another class that has no slots yet, in one transaction. A slot keeps its
-// teacher only when the teacher is active and free then in the target class's year; otherwise
-// it is copied without one. Slots of inactive subjects are not copied. Both are reported.
+// one class into another class that has no slots yet, in one transaction. The teacher of a slot:
+//   - same academic year: the target class's teacher of that subject (teacher_classes), when
+//     active and free then (with several, the first free one by name);
+//   - another year (last year's class): the slot's own teacher, when active and free then
+//     in the target class's year.
+// Otherwise the slot is copied without a teacher. Slots of inactive subjects are not copied.
+// Both are reported.
 const copyTimetable = async (req, res) => {
   try {
     const { from_class_id, to_class_id } = req.body || {};
@@ -167,8 +171,9 @@ const copyTimetable = async (req, res) => {
 
     const result = await inTransaction(async (client) => {
       // Lock the target class: two copies into it at the same moment run one after the other
-      const target = (await client.query('SELECT id, name FROM classes WHERE id = $1 FOR UPDATE', [to_class_id])).rows[0];
-      const source = (await client.query('SELECT id, name FROM classes WHERE id = $1', [from_class_id])).rows[0];
+      const target = (await client.query('SELECT id, name, academic_year_id FROM classes WHERE id = $1 FOR UPDATE', [to_class_id])).rows[0];
+      const source = (await client.query('SELECT id, name, academic_year_id FROM classes WHERE id = $1', [from_class_id])).rows[0];
+      const sameYear = source.academic_year_id === target.academic_year_id;
       const { rows: existing } = await client.query('SELECT COUNT(*)::int AS n FROM timetable WHERE class_id = $1', [to_class_id]);
       if (existing[0].n > 0) return { status: 409, message: `${target.name} already has ${existing[0].n} slot(s). Copy only into a class without a timetable.` };
 
@@ -183,26 +188,50 @@ const copyTimetable = async (req, res) => {
          ORDER BY ${DAY_ORDER}, t.period`, [from_class_id]);
       if (!slots.length) return { status: 400, message: `${source.name} has no timetable to copy.` };
 
+      // The class that teacher teaches at that day and period in the target's year, or null
+      const busyIn = async (teacherId, day, period) => (await client.query(
+        `SELECT c.name FROM timetable t JOIN classes c ON c.id = t.class_id
+         WHERE t.teacher_id = $1 AND t.day = $2 AND t.period = $3 AND c.academic_year_id = $4`,
+        [teacherId, day, period, target.academic_year_id])).rows[0]?.name ?? null;
+      // Same year: the target class's teachers per subject (active ones, by name)
+      const assigned = new Map();
+      if (sameYear) {
+        const { rows } = await client.query(
+          `SELECT tc.subject_id, te.id, te.first_name || ' ' || te.last_name AS name, te.is_active
+           FROM teacher_classes tc JOIN teachers te ON te.id = tc.teacher_id
+           WHERE tc.class_id = $1 ORDER BY te.first_name, te.last_name`, [to_class_id]);
+        for (const r of rows) assigned.set(r.subject_id, [...(assigned.get(r.subject_id) ?? []), r]);
+      }
+
       const skippedSlots = [], teachersSkipped = [];
-      let copied = 0;
+      let copied = 0, withTeacher = 0;
       for (const s of slots) {
-        const where = { day: s.day, period: s.period, subject_name: s.subject_name, teacher_name: s.teacher_name ?? null };
-        if (!s.subject_active) { skippedSlots.push({ ...where, reason: 'subject_inactive' }); continue; }
-        let teacherId = s.teacher_id;
-        if (teacherId && !s.teacher_active) {
-          teachersSkipped.push({ ...where, reason: 'teacher_inactive' });
-          teacherId = null;
-        } else if (teacherId) {
-          const clash = (await client.query(
-            `SELECT c.name FROM timetable t JOIN classes c ON c.id = t.class_id
-             WHERE t.teacher_id = $1 AND t.day = $2 AND t.period = $3
-               AND c.academic_year_id = (SELECT academic_year_id FROM classes WHERE id = $4)`,
-            [teacherId, s.day, s.period, to_class_id])).rows[0];
-          if (clash) {
-            teachersSkipped.push({ ...where, reason: 'teacher_clash', clash_class_name: clash.name });
-            teacherId = null;
+        const where = { day: s.day, period: s.period, subject_name: s.subject_name };
+        if (!s.subject_active) { skippedSlots.push({ ...where, teacher_name: s.teacher_name ?? null, reason: 'subject_inactive' }); continue; }
+        let teacherId = null;
+        if (sameYear) {
+          const candidates = assigned.get(s.subject_id) ?? [];
+          const active = candidates.filter((c) => c.is_active);
+          if (!candidates.length) teachersSkipped.push({ ...where, teacher_name: null, reason: 'no_assignment' });
+          else if (!active.length) teachersSkipped.push({ ...where, teacher_name: candidates[0].name, reason: 'teacher_inactive' });
+          else {
+            let firstClash = null;
+            for (const c of active) {
+              const busy = await busyIn(c.id, s.day, s.period);
+              if (!busy) { teacherId = c.id; break; }
+              firstClash ??= { teacher_name: c.name, clash_class_name: busy };
+            }
+            if (!teacherId) teachersSkipped.push({ ...where, ...firstClash, reason: 'teacher_clash' });
+          }
+        } else if (s.teacher_id) {
+          if (!s.teacher_active) teachersSkipped.push({ ...where, teacher_name: s.teacher_name, reason: 'teacher_inactive' });
+          else {
+            const busy = await busyIn(s.teacher_id, s.day, s.period);
+            if (busy) teachersSkipped.push({ ...where, teacher_name: s.teacher_name, reason: 'teacher_clash', clash_class_name: busy });
+            else teacherId = s.teacher_id;
           }
         }
+        if (teacherId) withTeacher++;
         await client.query(
           `INSERT INTO timetable (class_id, subject_id, teacher_id, day, period, start_time, end_time, room)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
@@ -210,8 +239,8 @@ const copyTimetable = async (req, res) => {
         copied++;
       }
       const report = {
-        from_class_id, from_class_name: source.name, to_class_id, to_class_name: target.name,
-        copied, skipped_slots: skippedSlots, teachers_skipped: teachersSkipped,
+        from_class_id, from_class_name: source.name, to_class_id, to_class_name: target.name, same_year: sameYear,
+        copied, with_teacher: withTeacher, skipped_slots: skippedSlots, teachers_skipped: teachersSkipped,
       };
       await audit(client, req, 'timetable.copied', 'class', to_class_id, report);
       return { status: 201, report };

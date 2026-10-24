@@ -2,8 +2,9 @@
 // values); an edit changes only the fields sent (teacher and room cleared with null, times checked);
 // a deactivated teacher refused; GET /timetable/conflicts lists teacher double bookings of a class in
 // its year only; GET /timetable/teacher/:id?academic_year_id=; POST /timetable/copy: only into a
-// class without slots (409), subjects, days, periods, times and rooms copied, a teacher kept only when
-// free in the target's year (reported otherwise), inactive subjects skipped (reported), copying from
+// class without slots (409), subjects, days, periods, times and rooms copied; the teacher: same year,
+// the target class's assigned teacher of the subject when active and free, another year the slot's own
+// teacher when free (reported otherwise); inactive subjects skipped (reported), copying from
 // last year's class; one audit entry; teacher 403 on writes and conflicts. Scratch DB on :3100.
 const pool = require('./tdb');
 const { createFreeYear } = require('./years');
@@ -106,20 +107,24 @@ const lastAudit = async (action, targetId) => (await pool.query(
     ok(r.status === 409 && /already has 1 slot/.test(r.body?.message), 'into a class with slots -> 409', msg(r));
     await pool.query('DELETE FROM timetable WHERE class_id = $1', [c5C]);
     await call(A, 'PUT', `/subjects/${sub.id}`, { is_active: false });
+    // Same year: the teacher comes from 5B's class assignments (Abebe teaches Mathematics there)
+    r = await call(A, 'POST', `/teachers/${tchId}/classes`, { class_id: c5B, subject_id: G.math });
+    ok(r.status === 201 || r.status === 200, 'Abebe assigned to 5B for Mathematics', msg(r));
     r = await call(A, 'POST', '/timetable/copy', { from_class_id: c5A, to_class_id: c5B });
     const rep = r.body?.data;
-    ok(r.status === 201 && rep.copied === 3, '5A -> 5B (same year): 201, 3 slots copied', msg(r));
+    ok(r.status === 201 && rep.copied === 3 && rep.same_year === true && rep.with_teacher === 2, '5A -> 5B (same year): 201, 3 slots copied, 2 with a teacher', msg(r));
     ok(rep?.skipped_slots.length === 1 && rep.skipped_slots[0].reason === 'subject_inactive' && rep.skipped_slots[0].day === 'Wednesday',
       'the inactive subject (Art) not copied, reported', JSON.stringify(rep?.skipped_slots));
-    ok(rep?.teachers_skipped.length === 2 && rep.teachers_skipped.every((x) => x.reason === 'teacher_clash' && x.clash_class_name === 'Grade 5 Section A'),
-      'same year: both teachers left out (they teach 5A then), reported with the class', JSON.stringify(rep?.teachers_skipped?.map((x) => x.day)));
+    ok(rep?.teachers_skipped.length === 1 && rep.teachers_skipped[0].reason === 'teacher_clash' && rep.teachers_skipped[0].day === 'Tuesday'
+      && rep.teachers_skipped[0].clash_class_name === 'Grade 5 Section A' && /^Abebe/.test(rep.teachers_skipped[0].teacher_name),
+      "Tuesday 2: Abebe busy in 5A then -> no teacher, reported with the class", JSON.stringify(rep?.teachers_skipped));
     let copied = (await call(A, 'GET', `/timetable/class/${c5B}`)).body.data.all_slots;
-    const mon = copied.find((s) => s.day === 'Monday'), tue = copied.find((s) => s.day === 'Tuesday');
-    ok(mon && mon.teacher_id === null && mon.subject_id === G.math && mon.start_time.startsWith('07:50'), 'Monday 1: subject and times copied, no teacher');
-    ok(tue && tue.teacher_id === null && tue.room === 'Lab' && tue.period === 2, 'Tuesday 2: the room copied');
-    ok(copied.some((s) => s.day === 'Saturday'), 'Saturday copied too');
+    const mon = copied.find((s) => s.day === 'Monday'), tue = copied.find((s) => s.day === 'Tuesday'), sat = copied.find((s) => s.day === 'Saturday');
+    ok(mon && mon.teacher_id === tchId && mon.subject_id === G.math && mon.start_time.startsWith('07:50'), "Monday 1: subject and times copied, 5B's teacher Abebe (not 5A's teacher B)");
+    ok(tue && tue.teacher_id === null && tue.room === 'Lab' && tue.period === 2, 'Tuesday 2: the room copied, no teacher');
+    ok(sat && sat.teacher_id === tchId, "Saturday 1 (no teacher in 5A): 5B's teacher Abebe");
     a = await lastAudit('timetable.copied', c5B);
-    ok(a?.new_data.copied === 3 && a.new_data.from_class_id === c5A && a.new_data.teachers_skipped.length === 2, 'one audit entry timetable.copied with the report');
+    ok(a?.new_data.copied === 3 && a.new_data.from_class_id === c5A && a.new_data.teachers_skipped.length === 1, 'one audit entry timetable.copied with the report');
     r = await call(A, 'POST', '/timetable/copy', { from_class_id: c5A, to_class_id: c5B });
     ok(r.status === 409, 'copied again -> 409 (not empty any more)', msg(r));
     const [r1, r2] = await Promise.all([
@@ -127,6 +132,9 @@ const lastAudit = async (action, targetId) => (await pool.query(
       call(A, 'POST', '/timetable/copy', { from_class_id: c5A, to_class_id: c5C })]);
     ok([r1.status, r2.status].sort().join() === '201,409', 'two copies into 5C at once: one 201, one 409', `${r1.status} ${r2.status}`);
     ok((await pool.query('SELECT COUNT(*)::int n FROM timetable WHERE class_id = $1', [c5C])).rows[0].n === 3, '5C has 3 slots, not 6');
+    const won = r1.status === 201 ? r1.body.data : r2.body.data;
+    ok(won.with_teacher === 0 && won.teachers_skipped.length === 3 && won.teachers_skipped.every((x) => x.reason === 'no_assignment'),
+      'same year, 5C has no Mathematics teacher assigned: all 3 without a teacher, reported no_assignment', JSON.stringify(won.teachers_skipped.map((x) => x.reason)));
 
     // Last year's 5A (Monday 1 teacher B, Thursday 4 and Friday 4 teacher Abebe) into this year's new 5D
     await slot(old5A, 'Thursday', 4, { teacher_id: tchId });
@@ -143,6 +151,13 @@ const lastAudit = async (action, targetId) => (await pool.query(
     await call(A, 'PUT', `/teachers/${tchId}`, { is_active: false });
     r = await call(A, 'POST', '/timetable/copy', { from_class_id: old5A, to_class_id: c5E });
     ok(r.status === 201 && r.body.data.teachers_skipped.filter((x) => x.reason === 'teacher_inactive').length === 2, 'a deactivated teacher: reported teacher_inactive, slots copied without one', msg(r));
+    // Same year, the assigned teacher deactivated: no teacher, reported teacher_inactive
+    const g6 = (await call(A, 'POST', '/classes', { academic_year_id: thisYear.id, grade_level: 6, section: 'A' })).body.data.id;
+    classes.push(g6);
+    await pool.query('INSERT INTO teacher_classes (teacher_id, class_id, subject_id) VALUES ($1, $2, $3)', [tchId, g6, G.math]);
+    r = await call(A, 'POST', '/timetable/copy', { from_class_id: c5A, to_class_id: g6 });
+    ok(r.status === 201 && r.body.data.with_teacher === 0 && r.body.data.teachers_skipped.filter((x) => x.reason === 'teacher_inactive').length === 3,
+      "same year, 6A's Mathematics teacher deactivated: copied without a teacher, reported teacher_inactive", msg(r));
     await call(A, 'PUT', `/teachers/${tchId}`, { is_active: true });
     ok((await call(A, 'POST', '/timetable/copy', { from_class_id: c5A, to_class_id: c5A })).status === 400, 'into itself -> 400');
     ok((await call(A, 'POST', '/timetable/copy', { from_class_id: c5D, to_class_id: c5E })).status === 409, 'into a class with slots (5E) -> 409');
@@ -159,6 +174,7 @@ const lastAudit = async (action, targetId) => (await pool.query(
     ok((await call(A, 'DELETE', `/timetable/${s1}`)).status === 404, 'deleted again -> 404');
   } finally {
     await pool.query('DELETE FROM timetable WHERE class_id = ANY($1::uuid[])', [classes]);
+    await pool.query('DELETE FROM teacher_classes WHERE class_id = ANY($1::uuid[])', [classes]);
     await pool.query('DELETE FROM subjects WHERE id = $1', [sub?.id]);
     if (tchId) await call(A, 'PUT', `/teachers/${tchId}`, { is_active: false });
     const left = (await pool.query('SELECT COUNT(*)::int n FROM timetable WHERE class_id = ANY($1::uuid[])', [classes])).rows[0].n;

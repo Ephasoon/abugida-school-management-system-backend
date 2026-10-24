@@ -95,7 +95,7 @@ Now (Phase 1 + M4, tested in g13 and g24):
 |---|---|
 | `GET /subjects?status=` | admin, principal, teacher (reference data, with usage counts) |
 | `POST /subjects`, `PUT /subjects/:id`, `DELETE /subjects/:id` | admin (audited). Delete only an unused subject (409 otherwise: deactivate it with `is_active: false`). An inactive subject is refused (400) for new timetable slots, class assignments, teacher subject lists and exams; its existing data stays |
-| `POST /timetable/copy` | admin (audited): only into a class without slots; teachers kept only when free in the target's year |
+| `POST /timetable/copy` | admin (audited): only into a class without slots. Teacher: same year, the target class's assigned teacher of the subject (`teacher_classes`) when free; another year, the slot's own teacher when free; otherwise none, reported |
 | `GET /timetable/conflicts?class_id=` | admin, principal |
 | `POST /timetable`, `PUT /timetable/:id`, `DELETE /timetable/:id` | admin, now audited (`timetable.slot_created`, `_updated`, `_deleted`) |
 | `GET /dashboard/school` | admin, principal (current year only, fees included) |
