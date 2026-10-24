@@ -58,6 +58,26 @@ const SETTINGS = {
     ? null : 'pass_yearly_average must be a number from 0 to 100.'),
   manual_promotion_grades: (v) => (Array.isArray(v) && v.every((g) => Number.isInteger(g) && g >= 1 && g <= 12) && new Set(v).size === v.length
     ? null : 'manual_promotion_grades must be a list of different grade levels from 1 to 12, e.g. [6, 8, 12].'),
+  period_times: (v) => periodTimesError(v),
+};
+
+// period_times (M7): periods 1-8 once each, "HH:MM" start before end, in order without overlaps
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+const periodTimesError = (v) => {
+  const shape = 'period_times must list periods 1 to 8, each once, as { period, start: "HH:MM", end: "HH:MM" }.';
+  if (!Array.isArray(v) || v.length !== 8) return shape;
+  const sorted = [...v].sort((a, b) => a?.period - b?.period);
+  for (let i = 0; i < 8; i++) {
+    const p = sorted[i];
+    if (!p || p.period !== i + 1 || !HHMM.test(p.start) || !HHMM.test(p.end)) return shape;
+    if (p.start >= p.end) return `Period ${p.period}: the end must be after the start.`;
+    if (i > 0 && p.start < sorted[i - 1].end) return `Period ${p.period} starts before period ${i} ends.`;
+  }
+  return null;
+};
+const normalize = {
+  manual_promotion_grades: (v) => [...v].sort((a, b) => a - b),
+  period_times: (v) => [...v].sort((a, b) => a.period - b.period).map(({ period, start, end }) => ({ period, start, end })),
 };
 
 const getSettings = async (req, res) => {
@@ -78,7 +98,7 @@ const updateSetting = async (req, res) => {
     if (bad) return sendError(res, bad, 400, { field: 'value' });
     const saved = await inTransaction(async (client) => {
       const old = (await client.query('SELECT value FROM school_settings WHERE key = $1 FOR UPDATE', [key])).rows[0]?.value ?? null;
-      const value2 = key === 'manual_promotion_grades' ? [...value].sort((a, b) => a - b) : value;
+      const value2 = normalize[key] ? normalize[key](value) : value;
       const { rows } = await client.query(
         `INSERT INTO school_settings (key, value, updated_by, updated_at) VALUES ($1, $2, $3, NOW())
          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()

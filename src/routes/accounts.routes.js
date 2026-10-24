@@ -7,6 +7,7 @@ const {
   createParentLogin, linkChild, unlinkChild, createPrincipal,
   setPrincipalStatus, setParentStatus, setStudentStatus, resetPassword,
 } = require('../controllers/accounts.controller');
+const { getAuditLog } = require('../controllers/audit.controller');
 const { authenticate } = require('../middleware/auth.middleware');
 const { adminOnly }    = require('../middleware/role.middleware');
 const { validateIds } = require('../middleware/validateIds.middleware');
@@ -17,6 +18,7 @@ router.use(authenticate);
 const checkIds = validateIds();   // malformed/unknown ids -> 404 (after role + access checks)
 router.use(adminOnly);
 
+router.get   ('/audit',                                getAuditLog);   // G8: ?from&to&user_id&action&target_type&page&limit
 router.get   ('/users',                                getUsers);
 router.post  ('/users/:userId/reset-password',          checkIds, resetPassword);
 router.post  ('/students/:studentId/login',             checkIds, createStudentLogin);

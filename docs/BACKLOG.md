@@ -2,6 +2,15 @@
 
 Items agreed but not yet scheduled. Newest first.
 
+## Ethiopian local time in Amharic mode
+
+*Added 2026-10-24 · asms-web · not started*
+
+Show times in Ethiopian local time in Amharic mode, next to the usual time, e.g.
+**8:00 (2:00 ጠዋት)**: the Ethiopian day starts at 6:00, so local hour = hour − 6
+(12-hour, with ጠዋት / ከሰዓት / ማታ / ሌሊት). Everywhere a time is shown: timetable, exam
+times, the period times setting, the audit log. Times stay stored and entered as today.
+
 ## School holidays list (incl. movable Ethiopian holidays)
 
 M4 has no holiday list (D31): unmarked days do not count, so rates are right, but the

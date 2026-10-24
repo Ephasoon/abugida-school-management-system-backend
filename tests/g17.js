@@ -84,6 +84,7 @@ const form = (fields) => {
     ['POST', `/teachers/${G.tA.tid}/classes`, { class_id: G.c9A, subject_id: G.math }, ['class_id', 'subject_id'], A],
     ['POST', '/timetable', { class_id: G.c9B, subject_id: G.math, teacher_id: G.tA.tid, day: 'Saturday', period: 8, start_time: '15:00', end_time: '15:40' }, ['class_id', 'subject_id', 'teacher_id'], A],
     ['PUT', `/timetable/${slotId}`, { subject_id: G.math, teacher_id: G.tA.tid }, ['subject_id', 'teacher_id'], A],
+    ['POST', '/timetable/copy', { from_class_id: G.c9A, to_class_id: G.c9B }, ['from_class_id', 'to_class_id'], A],
   ];
 
   const table = [];
