@@ -1,7 +1,8 @@
 // src/controllers/results.controller.js
 // ============================================================
 // Results (B2, PHASE2_PLAN §5.2), all from services/results.service.js:
-//   GET /api/results/student/:studentId?academic_year_id=   (scoped like report cards)
+//   GET /api/results/student/:studentId?academic_year_id=   (scoped like report cards; no class or
+//       scores yet: 200 with class, academic_year, semesters and year null)
 //   GET /api/results/class/:classId?semester=1|2|year         (A, P, T own class)
 // School settings:
 //   GET /api/settings          (staff)  → { key: value }
@@ -29,8 +30,9 @@ const getStudentResults = async (req, res) => {
     if (academic_year_id !== undefined && !isUuid(academic_year_id)) {
       return sendError(res, 'academic_year_id does not exist.', 400, { field: 'academic_year_id' });
     }
-    const data = await studentResults(req.params.studentId, academic_year_id);
-    return sendSuccess(res, data, 'Results retrieved.');
+    // No class or scores yet is normal (a new student): 200 with an empty result, not 404
+    const data = await studentResults(req.params.studentId, academic_year_id, db, { allowEmpty: true });
+    return sendSuccess(res, data, data.class ? 'Results retrieved.' : 'No results yet.');
   } catch (err) {
     return fail(res, err, 'Server error while computing results.');
   }

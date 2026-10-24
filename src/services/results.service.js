@@ -237,12 +237,29 @@ const classResults = async (classId, semester, q = db) => {
   return { class: classInfo(cls), academic_year: yearInfo(cls), ...r };
 };
 
+const studentInfo = (st) => ({
+  id: st.id, student_number: st.student_number, first_name: st.first_name, fathers_name: st.fathers_name,
+  last_name: st.last_name, first_name_am: st.first_name_am, fathers_name_am: st.fathers_name_am,
+  last_name_am: st.last_name_am, status: st.status,
+});
+
+// Years with results for this student (the shown year, their class now, or scores), newest first:
+// the parent portal's year picker (M6), as parents can't list academic years
+const resultYears = async (q, st, yearId) => (await q.query(
+  `SELECT y.id, y.name, y.end_date, y.is_current FROM academic_years y
+   WHERE y.id::text = $2 OR EXISTS (SELECT 1 FROM grades g JOIN exams e ON e.id = g.exam_id JOIN classes c ON c.id = e.class_id
+                                    WHERE g.student_id = $1 AND c.academic_year_id = y.id)
+      OR y.id = (SELECT c.academic_year_id FROM classes c WHERE c.id = $3)
+   ORDER BY y.start_date DESC`, [st.id, yearId ? String(yearId) : null, st.class_id])).rows;
+
 /**
  * GET /results/student/:studentId?academic_year_id=
  * The year: as asked, else that of the student's class, else the latest year with scores.
  * The class: the student's class if in that year, else the class with most of their scores.
+ * No class and no scores (in that year): a 404 ResultsError, or with { allowEmpty } the empty
+ * result (class, academic_year, semesters and year null), which is normal before a class is assigned.
  */
-const studentResults = async (studentId, academicYearId, q = db) => {
+const studentResults = async (studentId, academicYearId, q = db, { allowEmpty = false } = {}) => {
   const { rows: st } = await q.query(
     `SELECT s.id, s.student_number, s.first_name, s.fathers_name, s.last_name, s.first_name_am, s.fathers_name_am,
             s.last_name_am, s.status, s.class_id, c.academic_year_id AS current_year_id
@@ -255,7 +272,12 @@ const studentResults = async (studentId, academicYearId, q = db) => {
       `SELECT c.academic_year_id FROM grades g JOIN exams e ON e.id = g.exam_id JOIN classes c ON c.id = e.class_id
        JOIN academic_years y ON y.id = c.academic_year_id WHERE g.student_id = $1 ORDER BY y.start_date DESC LIMIT 1`, [student.id])).rows[0]?.academic_year_id;
   }
-  if (!yearId) throw new ResultsError(404, 'This student has no class and no results.');
+  const none = async (message) => {
+    if (!allowEmpty) throw new ResultsError(404, message);
+    return { student: studentInfo(student), class: null, academic_year: null, semesters: null, year: null, settings: null,
+      years: await resultYears(q, student, yearId) };
+  };
+  if (!yearId) return none('This student has no class and no results.');
   let classId = student.current_year_id === yearId ? student.class_id : null;
   if (!classId) {
     classId = (await q.query(
@@ -263,7 +285,7 @@ const studentResults = async (studentId, academicYearId, q = db) => {
        WHERE g.student_id = $1 AND c.academic_year_id::text = $2 GROUP BY e.class_id ORDER BY COUNT(*) DESC LIMIT 1`,
       [student.id, String(yearId)])).rows[0]?.class_id;
   }
-  if (!classId) throw new ResultsError(404, 'This student has no class or results in that academic year.');
+  if (!classId) return none('This student has no class or results in that academic year.');
   const cls = await loadClass(q, classId);
   const y = await classYear(cls, q);
   const semester = (key) => {
@@ -281,18 +303,9 @@ const studentResults = async (studentId, academicYearId, q = db) => {
     };
   };
   const yrow = y.students.find((s) => s.student_id === student.id);
-  // Years with results for this student (their class now, or scores), newest first: the
-  // parent portal's year picker (M6), as parents can't list academic years
-  const { rows: years } = await q.query(
-    `SELECT y.id, y.name, y.end_date, y.is_current FROM academic_years y
-     WHERE y.id = $2 OR EXISTS (SELECT 1 FROM grades g JOIN exams e ON e.id = g.exam_id JOIN classes c ON c.id = e.class_id
-                                WHERE g.student_id = $1 AND c.academic_year_id = y.id)
-        OR y.id = (SELECT c.academic_year_id FROM classes c WHERE c.id = $3)
-     ORDER BY y.start_date DESC`, [student.id, cls.academic_year_id, student.class_id]);
+  const years = await resultYears(q, student, cls.academic_year_id);
   return {
-    student: { id: student.id, student_number: student.student_number, first_name: student.first_name, fathers_name: student.fathers_name,
-      last_name: student.last_name, first_name_am: student.first_name_am, fathers_name_am: student.fathers_name_am,
-      last_name_am: student.last_name_am, status: student.status },
+    student: studentInfo(student),
     class: classInfo(cls),
     academic_year: yearInfo(cls),
     semesters: { semester1: semester('semester1'), semester2: semester('semester2') },

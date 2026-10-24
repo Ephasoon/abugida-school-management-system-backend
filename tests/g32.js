@@ -2,7 +2,8 @@
 // names, class and year (archived children listed with their status); a student's attendance
 // for a date range (an Ethiopian month spans two Gregorian months; at most 62 days); a parent
 // gets 403 for another family's child or class on every endpoint the portal uses; no teacher
-// phone or email in any of those responses. Scratch DB backend on :3100.
+// phone or email in any of those responses. A child without a class: results 200 with an empty
+// result (no 404), still 403 for another family and 404 for an unknown student. Scratch DB backend on :3100.
 const pool = require('./tdb');
 const API = 'http://localhost:3100/api';
 let pass = 0, fail = 0;
@@ -36,6 +37,9 @@ const tag = Date.now().toString(36);
   const P1 = await parent('Hiwot', [kidist, kaleb]);
   const P2 = await parent('Selam', [liya]);
   await call(A, 'DELETE', `/students/${kaleb}`);   // archived
+  // Meron: no class yet, the only child of parent 3
+  const meron = (await call(A, 'POST', '/students', { first_name: 'Meron', last_name: `G32${tag}`, gender: 'female' })).body.data.id;
+  const P3 = await parent('Tigist', [meron]);
 
   // Teacher A (teaches 9A) gets a phone for the contact check; put back at the end
   const tA = (await call(A, 'GET', `/teachers/${G.tA.tid}`)).body.data;
@@ -108,6 +112,23 @@ const tag = Date.now().toString(36);
     ok(fees.length === 2 && fees.includes(kidist) && !fees.includes(liya), '/parent/fees: own children only');
     ok((await call(P1, 'GET', `/exam-schedule/class/${G.c9A}`)).body.data.every((e) => 'subject_name_am' in e), 'class exams carry the Amharic subject name');
 
+    console.log('== A child without a class: results 200, empty');
+    const mk = ((await call(P3, 'GET', '/parent/children')).body?.data ?? [])[0];
+    ok(mk?.id === meron && mk.class_id === null && mk.class_name === null && mk.year_is_current === false, 'parent 3: Meron, no class, not a current year', JSON.stringify(mk && { class_id: mk.class_id, year_is_current: mk.year_is_current }));
+    r = await call(P3, 'GET', `/results/student/${meron}`);
+    const e = r.body?.data;
+    ok(r.status === 200 && e?.student?.id === meron && e.class === null && e.academic_year === null && e.semesters === null && e.year === null && Array.isArray(e.years) && e.years.length === 0,
+      'no class, no scores -> 200 with class, year and semesters null, no years', `${r.status} ${r.body?.message}`);
+    r = await call(P3, 'GET', `/results/student/${meron}?academic_year_id=${year.id}`);
+    ok(r.status === 200 && r.body.data.class === null, 'and for a given year -> 200, empty', String(r.status));
+    r = await call(A, 'GET', `/results/student/${meron}`);
+    ok(r.status === 200 && r.body.data.class === null, 'admin -> 200, empty', String(r.status));
+    r = await call(P3, 'GET', `/pdf/report-card/${meron}`);
+    ok(r.status === 200, 'report card PDF still 200 ("No results yet")', String(r.status));
+    ok((await call(P1, 'GET', `/results/student/${meron}`)).status === 403 && (await call(P3, 'GET', `/results/student/${kidist}`)).status === 403,
+      'another family: Meron for parent 1, Kidist for parent 3 -> 403');
+    ok((await call(A, 'GET', '/results/student/00000000-0000-4000-8000-000000000000')).status === 404, 'unknown student -> 404');
+
     console.log('== No teacher phone or email in any parent response');
     const leaks = bodies.filter((b) => b.includes(G.tA.email) || b.includes(phone));
     ok(bodies.length >= 20 && leaks.length === 0, `${bodies.length} responses, none with teacher A's email or phone`, leaks.map((b) => b.slice(0, 80)).join(' | '));
@@ -118,7 +139,7 @@ const tag = Date.now().toString(36);
   } finally {
     await call(A, 'PUT', `/teachers/${G.tA.tid}`, { phone: tA.phone ?? '' });
     await pool.query('DELETE FROM attendance WHERE student_id = $1', [kidist]);
-    for (const id of [kidist, liya]) await call(A, 'DELETE', `/students/${id}`);
+    for (const id of [kidist, liya, meron]) await call(A, 'DELETE', `/students/${id}`);
   }
   await pool.end();
   console.log(`PASS=${pass} FAIL=${fail}`);
